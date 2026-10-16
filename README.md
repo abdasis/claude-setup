@@ -38,11 +38,18 @@ praktis: `node` untuk hook plugin, `tmux` untuk sesi panjang/interaktif,
 Paket distro diutamakan karena dapat update keamanan. Hanya jalur **apt** yang
 diuji penulis — mapping `dnf`/`pacman`/`apk` best-effort.
 
-**Kalau `sudo` minta password** (skrip tidak akan menggantung menunggu input):
-skrip mencetak perintah siap-tempel, dan — kecuali `--no-user-fallback` —
-memasang binary user-space dari rilis resmi GitHub ke `~/.local/bin`
-(ripgrep, fd, shellcheck; `tmux` dan `pip` tidak punya rilis statis, jadi
-wajib lewat paket manager):
+**Hak akses root** — skrip mencoba tiga jalur, dan tidak akan menggantung menunggu
+input yang tak bisa dijawab:
+
+1. sudah root → langsung;
+2. `sudo` tanpa password → dipakai;
+3. `pkexec` (PolicyKit) → **dipakai di sesi desktop**, karena gnome-shell
+   menyediakan polkit agent sehingga otorisasi bisa lewat GUI tanpa password
+   terminal. Ini jalur yang dipakai di mesin penulis;
+4. kalau ketiganya tidak ada → skrip mencetak perintah siap-tempel, dan —
+   kecuali `--no-user-fallback` — memasang binary user-space dari rilis resmi
+   GitHub ke `~/.local/bin` (ripgrep, fd, shellcheck; `tmux` dan `pip` tidak
+   punya rilis statis, jadi wajib lewat paket manager):
 
 ```bash
 sudo apt-get update
@@ -51,6 +58,11 @@ sudo apt-get install -y ripgrep tmux python3-pip python3-venv fd-find shellcheck
 
 Kalau nanti paket distro sudah dipasang, hapus salinan lokalnya supaya update
 datang dari package manager: `rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/shellcheck`
+
+**Kuirk distro yang ditangani script:** Debian/Ubuntu memasang `fd` sebagai
+binary bernama `fdfind` (nama `fd` sudah dipakai paket lain). Pengecekan paket
+akan lulus padahal perintah `fd` tidak ada, jadi script membuat symlink
+`~/.local/bin/fd -> /usr/bin/fdfind` supaya agen bisa memanggil `fd`.
 
 ## Yang dipasang
 

@@ -87,9 +87,17 @@ if [ "$FAMILY" != "apt" ] && [ "$FAMILY" != "unknown" ]; then
 fi
 
 SUDO=""
-if [ "$(id -u)" = 0 ]; then SUDO=""
-elif sudo -n true 2>/dev/null; then SUDO="sudo"; info "sudo: passwordless"
-else info "sudo: password required (running as $(id -un))"; fi
+if [ "$(id -u)" = 0 ]; then
+  info "privilege: already root"
+elif sudo -n true 2>/dev/null; then
+  SUDO="sudo"; info "privilege: sudo (passwordless)"
+elif command -v pkexec >/dev/null 2>&1 && timeout 15 pkexec --disable-internal-agent true >/dev/null 2>&1; then
+  # Desktop sessions usually carry a polkit agent (gnome-shell), so a GUI
+  # authorization can succeed where `sudo` would need a terminal password.
+  SUDO="pkexec"; info "privilege: pkexec (PolicyKit — authorized by your desktop session)"
+else
+  info "privilege: none (sudo wants a password and pkexec is unavailable)"
+fi
 
 if [ "$ONLY_REQUIRED" = 1 ]; then WANT=("${REQUIRED[@]}"); else WANT=("${REQUIRED[@]}" "${RECOMMENDED[@]}"); fi
 
@@ -101,6 +109,18 @@ pkg_installed() {  # pkg_installed <apt-name>
     apk)    apk info -e "$1" >/dev/null 2>&1 ;;
     *)      return 1 ;;
   esac
+}
+
+# ── distro quirks ─────────────────────────────────────────────────────────────
+# Debian/Ubuntu install fd as `fdfind` (the name `fd` is taken by another package),
+# so a package-level check passes while the command agents actually call is absent.
+# Called both before an early exit and after a fresh install.
+apply_quirks() {
+  if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+    run mkdir -p "$HOME/.local/bin"
+    run ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
+    ok "linked ~/.local/bin/fd -> $(command -v fdfind)  ${D}(Ubuntu names it fdfind)${R}"
+  fi
 }
 
 # ── what is missing ───────────────────────────────────────────────────────────
@@ -116,25 +136,33 @@ for p in "${WANT[@]}"; do
     warn "$p missing  ${D}(package: $tp)${R}"
   fi
 done
-[ ${#MISSING_PKGS[@]} -eq 0 ] && { echo; ok "nothing to do — every package in scope is installed"; exit 0; }
+# ── distro quirks ─────────────────────────────────────────────────────────────
+apply_quirks
 
 # ── install ───────────────────────────────────────────────────────────────────
-step "Install (${#MISSING_PKGS[@]} packages)"
-if [ "$FAMILY" = unknown ]; then
-  fail "no supported package manager — install manually: ${MISSING_PKGS[*]}"
-elif [ -n "$SUDO" ] || [ "$(id -u)" = 0 ]; then
-  run $SUDO sh -c "$UPDATE_CMD" || warn "package index update failed — continuing"
-  run $SUDO sh -c "$INSTALL_CMD ${MISSING_PKGS[*]}" || fail "install command failed"
+if [ ${#MISSING_PKGS[@]} -eq 0 ]; then
+  step "Install"
+  ok "nothing to install — every package in scope is already present"
 else
-  echo "  ${B}Run this and the OS packages are done:${R}"
-  echo
-  echo "    sudo $UPDATE_CMD"
-  echo "    sudo $INSTALL_CMD ${MISSING_PKGS[*]}"
-  echo
+  step "Install (${#MISSING_PKGS[@]} packages)"
+  if [ "$FAMILY" = unknown ]; then
+    fail "no supported package manager — install manually: ${MISSING_PKGS[*]}"
+  elif [ -n "$SUDO" ] || [ "$(id -u)" = 0 ]; then
+    run $SUDO sh -c "$UPDATE_CMD" || warn "package index update failed — continuing"
+    run $SUDO sh -c "$INSTALL_CMD ${MISSING_PKGS[*]}" || fail "install command failed"
+    apply_quirks   # fdfind only exists once the package is installed
+  else
+    echo "  ${B}No usable privilege escalation — run this yourself:${R}"
+    echo
+    echo "    sudo $UPDATE_CMD"
+    echo "    sudo $INSTALL_CMD ${MISSING_PKGS[*]}"
+    echo
+  fi
 fi
 
 # ── user-space fallback for the tools that ship static releases ───────────────
-if [ "$USER_FALLBACK" = 1 ] && { [ -z "$SUDO" ] && [ "$(id -u)" != 0 ] || [ "$DRY_RUN" = 1 ]; }; then
+if [ "$USER_FALLBACK" = 1 ] && [ ${#MISSING_PKGS[@]} -gt 0 ] \
+   && { [ -z "$SUDO" ] && [ "$(id -u)" != 0 ] || [ "$DRY_RUN" = 1 ]; }; then
   step "User-space fallback (no sudo) → ~/.local/bin"
   BIN="$HOME/.local/bin"
   resolve_tag() {  # resolve_tag <owner/repo> <pinned>
