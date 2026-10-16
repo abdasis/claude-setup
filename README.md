@@ -157,6 +157,18 @@ claude-statsbar band off      # sembunyikan panel band ponytail (cost/tokens/tom
 claude-statsbar band on       # tampilkan lagi panel band itu
 ```
 
+Badge-nya **rata kanan**. Claude Code menangkap stdout script `statusLine` (tidak dihubungkan
+ke terminal), jadi `tput cols`/`stty` tidak bisa membaca lebar terminal dari dalam script — yang
+tersedia adalah `COLUMNS`/`LINES` yang Claude Code set ke env script itu (disebut eksplisit di
+dokumentasi statusline Claude Code). Dua knob kalau perlu:
+
+```bash
+CLAUDE_STATSBAR_ALIGN=left     # kembali rata kiri
+CLAUDE_STATSBAR_MARGIN=2       # sisakan 2 kolom di kanan (dipakai kalau barisnya membungkus)
+```
+
+Kalau `COLUMNS` tidak ada (host lain yang menjalankan script ini), badge otomatis rata kiri.
+
 Panel **band** ponytail (baris `off lite [full] ultra` plus cost / tokens / agent time di atas
 prompt) sengaja tidak ikut tampil: step 6 menulis flag `<config-dir>/.ponytail-band` = `off`
 yang dibaca modul UI-nya, sehingga satu-satunya indikator yang tampil adalah status bar.

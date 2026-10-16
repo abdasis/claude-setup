@@ -163,6 +163,17 @@ if [ -x "$SB" ]; then
   if [ "$had" = 1 ]; then printf '%s\n' "$prev" >"$BADGESTATE"; else rm -f "$BADGESTATE"; fi
   if [ -z "$blank" ]; then pass "badges off renders nothing (state restored: ${prev:-unset})"
   else bad "badges off still rendered output"; fi
+  # Rata kanan memakai COLUMNS: docs Claude Code menyatakan tput/stty tidak bisa membaca
+  # lebar terminal dari dalam script statusLine, COLUMNS/LINES yang diset Claude Code.
+  right="$(printf '%s' "$payload" | COLUMNS=120 CLAUDE_CONFIG_DIR="$AGENT_DIR" "$SB" 2>/dev/null)"
+  vis="$(printf '%s' "$right" | sed $'s/\033\\[[0-9;]*m//g')"
+  if [ -z "$vis" ]; then
+    echo "  ${D:-}      badge kosong (mode off) — rata kanan tidak diuji${R:-}"
+  elif [ "${#vis}" -eq 120 ]; then
+    pass "badge rata kanan: panjang baris ${#vis} = COLUMNS 120"
+  else
+    warn "badge tidak rata kanan (panjang ${#vis}, harusnya 120) — cek COLUMNS atau CLAUDE_STATSBAR_ALIGN"
+  fi
 fi
 BANDFLAG="$AGENT_DIR/.ponytail-band"
 if [ -f "$BANDFLAG" ] && [ "$(head -c 8 "$BANDFLAG" 2>/dev/null | tr -d '[:space:]')" = off ]; then

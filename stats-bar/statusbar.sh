@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Claude Code statusLine command — one bar for every plugin badge.
 #
-#   [PONYTAIL:FULL] [CAVEMAN]            badges on, modes active
-#   (empty)                             badges off  →  Claude Code hides the bar
+#                                    [PONYTAIL:FULL] [CAVEMAN]     ← rata kanan
+#   (kosong)                                                     badges off → baris disembunyikan
 #
 # Installed by claude-setup. Toggle:  ~/.claude/bin/claude-statsbar on|off|toggle|status
 # State:                              <CLAUDE_CONFIG_DIR>/stats-bar/badges  (on|off)
@@ -56,4 +56,26 @@ cave="$(newest \
 out="$(badge "$pony")"
 c="$(badge "$cave")"
 [ -n "$c" ] && out="${out:+$out }$c"
+[ -n "$out" ] || exit 0     # tanpa badge: jangan cetak spasi saja (baris kosong)
+
+# Rata kanan. Claude Code MENANGKAP stdout script ini (tidak dihubungkan ke terminal),
+# jadi `tput cols`/`stty` tidak bisa membaca lebar terminal; yang tersedia adalah
+# COLUMNS/LINES yang Claude Code set ke env script statusLine. Kalau COLUMNS tidak ada
+# (host lain) badge tetap tercetak rata kiri.
+#   CLAUDE_STATSBAR_ALIGN=left    — matikan rata kanan
+#   CLAUDE_STATSBAR_MARGIN=<n>    — sisa kolom di kanan (default 0; pakai 2 kalau membungkus)
+if [ "${CLAUDE_STATSBAR_ALIGN:-right}" = right ]; then
+  cols="${COLUMNS:-}"
+  case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
+  margin="${CLAUDE_STATSBAR_MARGIN:-0}"
+  case "$margin" in ''|*[!0-9]*) margin=0 ;; esac
+  if [ "$cols" -gt 1 ]; then
+    visible="$(printf '%s' "$out" | sed $'s/\033\\[[0-9;]*m//g')"
+    pad=$(( cols - ${#visible} - margin ))
+    if [ "$pad" -gt 0 ]; then
+      printf '%*s%s' "$pad" '' "$out"
+      exit 0
+    fi
+  fi
+fi
 printf '%s' "$out"
