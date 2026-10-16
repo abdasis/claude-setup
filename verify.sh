@@ -164,6 +164,12 @@ if [ -x "$SB" ]; then
   if [ -z "$blank" ]; then pass "badges off renders nothing (state restored: ${prev:-unset})"
   else bad "badges off still rendered output"; fi
 fi
+BANDFLAG="$AGENT_DIR/.ponytail-band"
+if [ -f "$BANDFLAG" ] && [ "$(head -c 8 "$BANDFLAG" 2>/dev/null | tr -d '[:space:]')" = off ]; then
+  pass "panel band ponytail tersembunyi — hanya status bar yang tampil"
+else
+  warn "panel band ponytail tampil di atas prompt — sembunyikan: claude-statsbar band off"
+fi
 
 if [ "$SMOKE" = 1 ]; then
   head_ "live request"

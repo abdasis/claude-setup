@@ -6,6 +6,9 @@
 #                            workspace) and no badges
 #   claude-statsbar toggle   flip between the two
 #   claude-statsbar badges on|off   status bar only, leaves the modes alone
+#   claude-statsbar band on|off     panel band ponytail di atas prompt (cost/tokens/
+#                                   tombol mode) — default disembunyikan supaya
+#                                   status bar satu-satunya yang tampil
 #   claude-statsbar status   show what is on
 #
 # "off" writes defaultMode: off into the plugins' own config files — the lever
@@ -63,6 +66,22 @@ set_badges() { # set_badges on|off
   printf '%s\n' "$1" >"$BADGES"
 }
 
+# Panel "band" ponytail (baris cost/tokens/agent time + tombol mode di atas prompt)
+# dibaca dari flag ini; isinya persis 'off' = tersembunyi, tidak ada file = tampil.
+# Nilai & lokasinya sama dengan yang ditulis `/ponytail band off`.
+BANDFLAG="$CFG/.ponytail-band"
+band_state() {
+  if [ -f "$BANDFLAG" ] && [ "$(head -n1 "$BANDFLAG" 2>/dev/null | tr -d '[:space:]')" = off ]; then echo hidden; else echo shown; fi
+}
+set_band() { # set_band on|off
+  if [ "$1" = on ]; then
+    rm -f "$BANDFLAG"
+  else
+    mkdir -p "$CFG"
+    printf 'off' >"$BANDFLAG"       # tanpa newline, sama seperti plugin menulisnya
+  fi
+}
+
 set_modes() { # set_modes on|off
   if [ "$1" = on ]; then
     write_default_mode "$PONY_CFG" "$PONY_ON"
@@ -78,6 +97,7 @@ set_modes() { # set_modes on|off
 
 show_status() {
   echo "status bar badges : $(badge_state)   ($BADGES)"
+  echo "panel band        : $(band_state)   ($BANDFLAG)"
   echo "ponytail default  : $(read_default_mode "$PONY_CFG")   ($PONY_CFG)"
   echo "caveman default   : $(read_default_mode "$CAVE_CFG")   ($CAVE_CFG)"
   echo "statusline        : $(node -e '
@@ -96,13 +116,15 @@ show_status() {
 
 case "${1:-status}" in
   on)
-    need_node; set_modes on; set_badges on
+    need_node; set_modes on; set_badges on; set_band off
     echo "on  — ponytail ($PONY_ON) + caveman ($CAVE_ON) active, badges shown."
+    echo "      Panel band ponytail disembunyikan; hanya status bar yang tampil."
     echo "      Restart the Claude session (or /clear) to load the modes."
     ;;
   off)
-    need_node; set_modes off; set_badges off
-    echo "off — ponytail + caveman silent, status bar empty. Claude workspace stays clean."
+    need_node; set_modes off; set_badges off; set_band off
+    echo "off — ponytail + caveman silent, status bar empty, panel band hidden."
+    echo "      Claude workspace stays clean."
     echo "      Restart the Claude session (or run /ponytail off and /caveman off) to apply now."
     ;;
   toggle)
@@ -119,9 +141,17 @@ case "${1:-status}" in
       *)   die "usage: claude-statsbar badges on|off" ;;
     esac
     ;;
+  band)
+    case "${2:-}" in
+      on)  set_band on;  echo "panel band ditampilkan (cost/tokens/agent time + tombol mode)." ;;
+      off) set_band off; echo "panel band disembunyikan — hanya status bar yang tampil." ;;
+      *)   die "usage: claude-statsbar band on|off" ;;
+    esac
+    ;;
   status) show_status ;;
   *)
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    # seluruh blok komentar di kepala file = bantuan
+    awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"
     exit 1
     ;;
 esac

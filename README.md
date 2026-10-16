@@ -153,7 +153,15 @@ claude-statsbar off           # badge hilang + ponytail & caveman diam (workspac
 claude-statsbar on            # badge tampil + kedua mode aktif
 claude-statsbar toggle        # balik on/off
 claude-statsbar badges off    # hanya sembunyikan badge; mode plugin tidak diubah
+claude-statsbar band off      # sembunyikan panel band ponytail (cost/tokens/tombol mode)
+claude-statsbar band on       # tampilkan lagi panel band itu
 ```
+
+Panel **band** ponytail (baris `off lite [full] ultra` plus cost / tokens / agent time di atas
+prompt) sengaja tidak ikut tampil: step 6 menulis flag `<config-dir>/.ponytail-band` = `off`
+yang dibaca modul UI-nya, sehingga satu-satunya indikator yang tampil adalah status bar.
+`claude-statsbar on` dan `off` selalu menyembunyikannya lagi; `/ponytail band` di dalam Claude
+atau `claude-statsbar band on` untuk menampilkannya kembali.
 
 Dari dalam Claude: `/statsbar off`, `/statsbar status`, dan seterusnya. CLI-nya ada
 di PATH lewat `~/.local/bin/claude-statsbar`.

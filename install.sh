@@ -473,6 +473,23 @@ PY
       ok "badge toggle created (on) — 'claude-statsbar off' hides the badges AND silences both plugins"
     fi
 
+    # Panel "band" ponytail (cost/tokens/agent time + tombol mode di atas prompt)
+    # dimatikan supaya satu-satunya yang tampil adalah status bar. Flag-nya sama
+    # dengan yang ditulis `/ponytail band off`; `claude-statsbar band on` atau
+    # `/ponytail band` mengembalikannya.
+    BANDFLAG="$AGENT_DIR/.ponytail-band"
+    if [ -f "$BANDFLAG" ]; then
+      if [ "$(head -c 8 "$BANDFLAG" 2>/dev/null | tr -d '[:space:]')" = off ]; then
+        skip "panel band ponytail sudah disembunyikan ($BANDFLAG)"
+      else
+        run sh -c "printf 'off' > '$BANDFLAG'"
+        ok "panel band ponytail disembunyikan"
+      fi
+    else
+      run sh -c "printf 'off' > '$BANDFLAG'"
+      ok "panel band ponytail disembunyikan ('claude-statsbar band on' untuk menampilkan lagi)"
+    fi
+
     # Slash command inside Claude (/statsbar). $AGENT_DIR/commands is a symlink into
     # the config repo once step 1 ran, so this lands in the repo too.
     if [ -f "$SRC/statsbar.md" ] && ! cmp -s "$SRC/statsbar.md" "$AGENT_DIR/commands/statsbar.md" 2>/dev/null; then
