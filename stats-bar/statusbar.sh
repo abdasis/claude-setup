@@ -71,6 +71,27 @@ cave="$(newest \
 
 modes="$(badge "$pony")"
 c="$(badge "$cave")"
+
+# Badge plugin → ikon, biar hemat ruang. Hanya mode yang umum dipetakan; mode yang
+# tidak dikenal dibiarkan apa adanya (mode baru dari plugin tidak pernah hilang).
+#   ● ponytail(full)  ●- lite  ●+ ultra  ●* review
+#   ▲ caveman         ▲+ ultracave       ▲++ megacave
+# CLAUDE_STATSBAR_ICONS=off mematikan penggantian ini (mis. kalau font terminal lain
+# tidak punya glyph-nya).
+iconify() {
+  [ "${CLAUDE_STATSBAR_ICONS:-on}" = off ] && { printf '%s' "$1"; return 0; }
+  printf '%s' "$1" | sed \
+    -e 's/\[PONYTAIL:LITE\]/●-/g' \
+    -e 's/\[PONYTAIL:FULL\]/●/g' \
+    -e 's/\[PONYTAIL:ULTRA\]/●+/g' \
+    -e 's/\[PONYTAIL:REVIEW\]/●*/g' \
+    -e 's/\[PONYTAIL\]/●/g' \
+    -e 's/\[ULTRACAVE\]/▲+/g' \
+    -e 's/\[MEGACAVE\]/▲++/g' \
+    -e 's/\[CAVEMAN\]/▲/g'
+}
+modes="$(iconify "$modes")"
+c="$(iconify "$c")"
 [ -n "$c" ] && modes="${modes:+$modes }$c"
 
 # gabungkan mode + info; spasi pemisah hanya kalau keduanya ada
@@ -85,6 +106,7 @@ out="$(join "$modes" "$info_full")"
 #   CLAUDE_STATSBAR_ALIGN=left    — matikan rata kanan
 #   CLAUDE_STATSBAR_MARGIN=<n>    — sisa kolom di kanan (default 0; pakai 2 kalau membungkus)
 #   CLAUDE_STATSBAR_INFO=off      — sembunyikan segmen ctx/tok
+#   CLAUDE_STATSBAR_ICONS=off     — kembalikan badge plugin jadi teks ([PONYTAIL]/[CAVEMAN])
 cols="${COLUMNS:-}"
 case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
 margin="${CLAUDE_STATSBAR_MARGIN:-0}"

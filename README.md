@@ -169,16 +169,31 @@ CLAUDE_STATSBAR_MARGIN=2       # sisakan 2 kolom di kanan (dipakai kalau barisny
 
 Kalau `COLUMNS` tidak ada (host lain yang menjalankan script ini), badge otomatis rata kiri.
 
+### Badge plugin jadi ikon
+
+Badge `[PONYTAIL]` / `[CAVEMAN]` dari plugin diganti ikon oleh wrapper (file plugin-nya
+sendiri tidak disentuh), supaya baris makin pendek:
+
+```
+●  ponytail (full)      ●-  lite        ●+  ultra       ●*  review
+▲  caveman              ▲+  ultracave    ▲++ megacave
+[CAVEMAN:COMMIT]        mode lain dibiarkan apa adanya — mode baru tidak pernah hilang
+```
+
+Warna ikon tetap warna plugin (hijau untuk mode biasa, amber untuk mode intens). Glyph
+`●` dan `▲` tersedia di font terminal Dank Mono. Di mesin lain yang fontnya beda,
+`CLAUDE_STATSBAR_ICONS=off` mengembalikan badge teks aslinya.
+
 ### Segmen info: context & token sesi
 
 Ikon, bukan teks — hemat ruang. Semua glyph di bawah ada di font terminal Dank Mono
 (dicek lewat `fc-list --charset`), jadi tidak jatuh ke font fallback:
 
 ```
-[PONYTAIL] [CAVEMAN]  ◔ 9% 90.9k/1M · Σ 22.5M ↑1.8M ↓133.7k
-                      │              │        └ input / output
-                      │              └ token sesi kumulatif (termasuk cache read/write)
-                      └ context terpakai: persentase + token/window
+● ▲  ◔ 9% 90.9k/1M · Σ 22.5M ↑1.8M ↓133.7k
+     │              │        └ input / output
+     │              └ token sesi kumulatif (termasuk cache read/write)
+     └ context terpakai: persentase + token/window
 ```
 
 - **`◔`** — context yang sedang terpakai, dari payload statusline Claude Code

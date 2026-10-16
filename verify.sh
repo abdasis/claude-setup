@@ -193,7 +193,16 @@ if [ -x "$SB" ]; then
   else
     bad "status-bar/statusline-info.py hilang — segmen ctx/tok tidak jalan"
   fi
+  # badge plugin → ikon (● ponytail, ▲ caveman): teksnya tidak boleh muncul lagi
+  iline="$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$AGENT_DIR" "$SB" 2>/dev/null | sed $'s/\033\\[[0-9;]*m//g')"
+  case "$iline" in
+    "") echo "        badge kosong (mode off) — ikon tidak diuji" ;;
+    *"●"*"▲"*) pass "badge plugin jadi ikon: $(printf '%s' "$iline" | sed 's/^ *//')" ;;
+    *"[PONYTAIL]"*|*"[CAVEMAN]"*) bad "badge plugin masih teks — cek CLAUDE_STATSBAR_ICONS" ;;
+    *) warn "ikon badge tidak terlihat: [$iline]" ;;
+  esac
 fi
+
 BANDFLAG="$AGENT_DIR/.ponytail-band"
 if [ -f "$BANDFLAG" ] && [ "$(head -c 8 "$BANDFLAG" 2>/dev/null | tr -d '[:space:]')" = off ]; then
   pass "panel band ponytail tersembunyi — hanya status bar yang tampil"
