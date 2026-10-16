@@ -98,6 +98,44 @@ else
   bad "codegraph MCP server not registered"
 fi
 
+head_ "status bar (ponytail + caveman badges)"
+SB="$AGENT_DIR/stats-bar/statusbar.sh"
+TOGGLE="$AGENT_DIR/bin/claude-statsbar"
+if [ -x "$SB" ]; then pass "wrapper present ($SB)"; else bad "$SB missing — run install.sh (step 6)"; fi
+if [ -x "$TOGGLE" ]; then pass "claude-statsbar present"; else warn "claude-statsbar missing or not executable"; fi
+if command -v claude-statsbar >/dev/null 2>&1; then pass "claude-statsbar on PATH"
+else warn "claude-statsbar not on PATH (new shell, or call $TOGGLE directly)"; fi
+for s in "$AGENT_DIR/ponytail-statusline.sh" "$AGENT_DIR/hooks/caveman-statusline.sh"; do
+  if [ -f "$s" ]; then pass "badge script $(basename "$s")"; else warn "badge script missing: $s"; fi
+done
+if python3 -c 'import json,os,sys;d=json.load(open(os.path.expanduser("~/.claude/settings.json")));sys.exit(0 if "stats-bar/statusbar.sh" in (d.get("statusLine") or {}).get("command","") else 1)' 2>/dev/null; then
+  pass "settings.json statusLine points at the stats bar"
+else
+  bad "settings.json statusLine is not the stats bar — badges will not render"
+fi
+if [ -x "$SB" ]; then
+  # CLAUDE_CONFIG_DIR is scoped to these two calls on purpose: the wrapper resolves
+  # its badge scripts and toggle state from it, and exporting it for the whole script
+  # would change how `claude mcp list` looks up servers.
+  payload='{"session_id":"verify","cwd":"'"$PWD"'","rate_limits":{"five_hour":{"used_percentage":1}}}'
+  out="$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$AGENT_DIR" "$SB" 2>/dev/null)" && rc=0 || rc=$?
+  if [ "$rc" = 0 ]; then
+    clean="$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g')"
+    pass "renders without error: ${clean:-<empty>} $([ -n "$clean" ] || echo '(badges off, or both plugins off)')"
+  else
+    bad "statusline wrapper exited $rc"
+  fi
+  # toggle check, restoring whatever was there before (verify.sh stays a no-op)
+  BADGESTATE="$AGENT_DIR/stats-bar/badges"
+  had=0; [ -f "$BADGESTATE" ] && had=1
+  prev="$(head -n1 "$BADGESTATE" 2>/dev/null | tr -d '[:space:]')"
+  printf 'off\n' >"$BADGESTATE" 2>/dev/null
+  blank="$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$AGENT_DIR" "$SB" 2>/dev/null)"
+  if [ "$had" = 1 ]; then printf '%s\n' "$prev" >"$BADGESTATE"; else rm -f "$BADGESTATE"; fi
+  if [ -z "$blank" ]; then pass "badges off renders nothing (state restored: ${prev:-unset})"
+  else bad "badges off still rendered output"; fi
+fi
+
 if [ "$SMOKE" = 1 ]; then
   head_ "live request"
   out="$(claude -p 'Reply with exactly: ok' --output-format json --max-turns 1 2>/dev/null | tail -1)"

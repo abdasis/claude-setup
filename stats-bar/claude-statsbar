@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# claude-statsbar — one toggle for the ponytail/caveman clutter in Claude Code.
+#
+#   claude-statsbar on       ponytail + caveman active, badges in the status bar
+#   claude-statsbar off      both plugins silent (no ruleset dumped into the
+#                            workspace) and no badges
+#   claude-statsbar toggle   flip between the two
+#   claude-statsbar badges on|off   status bar only, leaves the modes alone
+#   claude-statsbar status   show what is on
+#
+# "off" writes defaultMode: off into the plugins' own config files — the lever
+# both hooks read before they emit anything. Both plugins deliver their mode as
+# SessionStart context, which renders in the transcript and cannot be hidden
+# while the mode is on; off is the only way to a clean workspace.
+#
+# Installed by claude-setup.
+
+set -u
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+DIR="$CFG/stats-bar"
+BADGES="$DIR/badges"
+XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
+PONY_CFG="$XDG/ponytail/config.json"
+CAVE_CFG="$XDG/caveman/config.json"
+PONY_ON="${PONYTAIL_ON:-full}"
+CAVE_ON="${CAVEMAN_ON:-caveman}"
+
+die() { echo "claude-statsbar: $*" >&2; exit 1; }
+need_node() { command -v node >/dev/null 2>&1 || die "node not found (both plugins require it)"; }
+
+read_default_mode() { # read_default_mode <file>
+  [ -f "$1" ] || { echo "-"; return; }
+  node -e '
+    const fs=require("fs");
+    let raw=fs.readFileSync(process.argv[1],"utf8").replace(/^\uFEFF/,"");
+    try{ const m=JSON.parse(raw).defaultMode; console.log(m?String(m):"-"); }
+    catch(e){ console.log("?"); }
+  ' "$1" 2>/dev/null || echo "?"
+}
+
+write_default_mode() { # write_default_mode <file> <mode>
+  node -e '
+    const fs=require("fs"), path=require("path");
+    const [file,mode]=process.argv.slice(1);
+    let cfg={};
+    try{ cfg=JSON.parse(fs.readFileSync(file,"utf8").replace(/^\uFEFF/,"")) || {}; }catch(e){}
+    if(typeof cfg!=="object"||Array.isArray(cfg)) cfg={};
+    cfg.defaultMode=mode;
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    fs.writeFileSync(file,JSON.stringify(cfg,null,2)+"\n");
+  ' "$1" "$2" || die "could not write $1"
+}
+
+badge_state() { # on|off
+  case "$(head -n1 "$BADGES" 2>/dev/null | tr -d '[:space:]')" in
+    off) echo off ;;
+    *)   echo on ;;
+  esac
+}
+
+set_badges() { # set_badges on|off
+  mkdir -p "$DIR"
+  printf '%s\n' "$1" >"$BADGES"
+}
+
+set_modes() { # set_modes on|off
+  if [ "$1" = on ]; then
+    write_default_mode "$PONY_CFG" "$PONY_ON"
+    write_default_mode "$CAVE_CFG" "$CAVE_ON"
+    printf '%s\n' "$PONY_ON" >"$CFG/.ponytail-active"
+  else
+    write_default_mode "$PONY_CFG" off
+    write_default_mode "$CAVE_CFG" off
+    printf '%s\n' off >"$CFG/.ponytail-active"
+    rm -f "$CFG/.caveman-sessions"/*.mode 2>/dev/null || true
+  fi
+}
+
+show_status() {
+  echo "status bar badges : $(badge_state)   ($BADGES)"
+  echo "ponytail default  : $(read_default_mode "$PONY_CFG")   ($PONY_CFG)"
+  echo "caveman default   : $(read_default_mode "$CAVE_CFG")   ($CAVE_CFG)"
+  echo "statusline        : $(node -e '
+    const fs=require("fs");
+    const f=process.argv[1]+"/settings.json";
+    try{
+      const s=JSON.parse(fs.readFileSync(f,"utf8").replace(/^\uFEFF/,""));
+      const c=s.statusLine&&s.statusLine.command;
+      if(!c) console.log("(not set)");
+      else console.log(/stats-bar\/statusbar\.sh/.test(c)?"stats-bar":c.slice(0,60)+"...");
+    }catch(e){ console.log("?"); }
+  ' "$CFG" 2>/dev/null)"
+  echo
+  echo "Modes change the NEXT Claude session. In a running one: /ponytail off | /caveman off"
+}
+
+case "${1:-status}" in
+  on)
+    need_node; set_modes on; set_badges on
+    echo "on  — ponytail ($PONY_ON) + caveman ($CAVE_ON) active, badges shown."
+    echo "      Restart the Claude session (or /clear) to load the modes."
+    ;;
+  off)
+    need_node; set_modes off; set_badges off
+    echo "off — ponytail + caveman silent, status bar empty. Claude workspace stays clean."
+    echo "      Restart the Claude session (or run /ponytail off and /caveman off) to apply now."
+    ;;
+  toggle)
+    if [ "$(badge_state)" = on ] && [ "$(read_default_mode "$PONY_CFG")" != off ]; then
+      "$0" off
+    else
+      "$0" on
+    fi
+    ;;
+  badges)
+    case "${2:-}" in
+      on)  set_badges on;  echo "badges on." ;;
+      off) set_badges off; echo "badges off — the status bar renders nothing." ;;
+      *)   die "usage: claude-statsbar badges on|off" ;;
+    esac
+    ;;
+  status) show_status ;;
+  *)
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac

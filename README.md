@@ -73,8 +73,47 @@ akan lulus padahal perintah `fd` tidak ada, jadi script membuat symlink
 | 3. Plugin | `ponytail@ponytail`, `caveman@caveman`, `superpowers@claude-plugins-official` (+ userConfig caveman) |
 | 4. rtk | binary `rtk` + hook `PreToolUse` (`rtk hook claude`) + `RTK.md` di lokasi yang benar-benar di-resolve `@RTK.md` |
 | 5. codegraph | binary `codegraph` + MCP server (user scope, `alwaysLoad`) + permission `mcp__codegraph__*` |
+| 6. Status bar | satu `statusLine` gabungan (badge `[PONYTAIL]` + `[CAVEMAN]`) + CLI `claude-statsbar` untuk toggle on/off, plus slash command `/statsbar` |
 
 Setelah selesai: `./verify.sh` (atau `./verify.sh --smoke` untuk sekalian tes satu request nyata).
+
+## Status bar & satu toggle
+
+Claude Code hanya mengizinkan **satu** `statusLine`, sementara ponytail dan caveman
+masing-masing punya badge sendiri. Step 6 memasang satu pembungkus
+(`~/.claude/stats-bar/statusbar.sh`) yang memanggil badge keduanya dalam satu baris:
+`[PONYTAIL:FULL] [CAVEMAN]`.
+
+Badge dirender oleh script milik plugin masing-masing — disalin ke path stabil
+(`~/.claude/ponytail-statusline.sh`, `~/.claude/hooks/caveman-statusline.sh`) supaya
+tidak putus saat plugin di-update; pembungkus selalu memilih yang terbaru antara
+salinan stabil dan isi plugin cache, dan tidak error kalau salah satunya hilang.
+
+Kalau Orca (atau hook statusline lain) sudah memasang `statusLine`-nya sendiri,
+perintah lama itu **tetap dijalankan**: pembungkus meneruskan payload-nya, jadi
+usage/quota Claude di status bar Orca tidak mati. Perintah `statusLine` sebelumnya
+disimpan di `~/.claude/stats-bar/previous-statusline.txt`.
+
+Ponytail dan caveman mengirim modenya sebagai konteks `SessionStart`, jadi teks
+ruleset-nya **selalu muncul di transkrip** selama modenya aktif — itu desain
+pluginnya, bukan bug yang bisa disembunyikan. Satu-satunya cara membuat workspace
+bersih adalah mematikan modenya, dan itu yang dilakukan toggle ini:
+
+```bash
+claude-statsbar status        # keadaan sekarang (badge, defaultMode, statusLine)
+claude-statsbar off           # badge hilang + ponytail & caveman diam (workspace bersih)
+claude-statsbar on            # badge tampil + kedua mode aktif
+claude-statsbar toggle        # balik on/off
+claude-statsbar badges off    # hanya sembunyikan badge; mode plugin tidak diubah
+```
+
+Dari dalam Claude: `/statsbar off`, `/statsbar status`, dan seterusnya. CLI-nya ada
+di PATH lewat `~/.local/bin/claude-statsbar`.
+
+`off` menulis `defaultMode: "off"` ke `~/.config/ponytail/config.json` dan
+`~/.config/caveman/config.json` — lever resmi yang dibaca kedua hook sebelum
+mencetak apa pun. Karena itu efeknya berlaku di **sesi Claude berikutnya**; untuk
+sesi yang sedang jalan pakai `/ponytail off` dan `/caveman off`.
 
 ## Kebutuhan
 
@@ -88,7 +127,7 @@ Setelah selesai: `./verify.sh` (atau `./verify.sh --smoke` untuk sekalian tes sa
 --machine <home|laptop|kantor>   profil mesin untuk install.sh config repo (default: laptop)
 --yes                            tanpa prompt (key harus sudah ada di env)
 --dry-run                        cetak perintah tanpa menjalankannya
---no-config / --no-model / --no-plugins / --no-rtk / --no-codegraph
+--no-config / --no-model / --no-plugins / --no-rtk / --no-codegraph / --no-statsbar
 --smoke                          tes satu request live di akhir
 ```
 
@@ -127,9 +166,11 @@ Tidak ada rahasia di repo ini: token hanya masuk ke `~/.claude/settings.json`
   `cd <proyek> && codegraph init`. Tanpa `.codegraph/`, CodeGraph tidak dipakai.
 - **Tidak meng-commit `RTK.md`.** File itu muncul di repo config-mu setelah
   langkah 4; commit sendiri supaya mesin lain dapat import `@RTK.md`.
-- **Tidak mengubah statusLine.** Plugin caveman menawarkan badge statusline;
-  kalau kamu sudah punya `statusLine` di `settings.json`, menerimanya akan
-  menimpanya. Script ini tidak menyentuhnya.
+- **Tidak meng-commit `statusLine` ke repo config.** Step 6 menulisnya di
+  `~/.claude/settings.json`; repo config sendiri sudah meng-gitignore file itu.
+  Perintah lamanya disimpan di `~/.claude/stats-bar/previous-statusline.txt`.
+- **Tidak memilih plugin mana yang tampil di badge.** Sekarang ponytail + caveman;
+  menambah plugin lain berarti menambah satu pemanggilan badge di `statusbar.sh`.
 - **Tidak mematikan telemetry.** codegraph default-nya mengirim statistik
   anonim; matikan dengan `codegraph telemetry off` atau `DO_NOT_TRACK=1`.
 
@@ -152,6 +193,8 @@ Tidak ada rahasia di repo ini: token hanya masuk ke `~/.claude/settings.json`
 | Error `node: command not found` di hook | node tidak ada di PATH non-interaktif |
 | `codegraph` tidak ketemu padahal baru dipasang | Buka shell baru (PATH belum di-refresh) |
 | `@RTK.md` tidak ter-import | Cek `./verify.sh` — file harus ada di realpath `CLAUDE.md` |
+| Badge ponytail/caveman tidak muncul | `claude-statsbar status` (badge harus `on`), lalu `./verify.sh` bagian "status bar" — salinan script badge & `statusLine` dicek di sana |
+| Workspace tetap penuh teks ruleset | Mode sedang aktif; itu memang cara plugin mengirim instruksinya. `claude-statsbar off` (berlaku sesi berikutnya) atau `/ponytail off` + `/caveman off` sekarang |
 | `claude mcp list` kosong | Belum ada MCP terdaftar; jalankan langkah 5 atau `claude mcp add-json` manual |
 | `os-tools.sh` berhenti di soal `sudo` | Bukan error: jalankan perintah `sudo apt-get install ...` yang dicetaknya di terminalmu, lalu ulangi `./os-tools.sh` |
 | `rg`/`fd` jalan tapi versinya beda dari paket distro | Salinan user-space di `~/.local/bin` mendahului `/usr/bin`; hapus kalau mau pakai paket distro |
