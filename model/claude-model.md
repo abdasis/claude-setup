@@ -11,8 +11,8 @@ Jalankan script berikut dan tampilkan outputnya apa adanya:
 Tanpa argumen = `status`. Arti perintah:
 
 - `list` — daftar provider, endpoint, model default, dan status key.
-- `use <provider> [model]` — pindah provider/model (menulis blok `env` di `~/.claude/settings.json`, backup otomatis).
-- `key <provider> [value]` — simpan/putar API key provider (tanpa value = ditanya, input tersembunyi).
+- `use <provider> [model]` — pindah provider/model (menulis blok `env` di `~/.claude/settings.json`, backup otomatis). Key provider diingat di `~/.claude/model-keys/<provider>` (0600), jadi tidak ditanya lagi di perpindahan berikutnya.
+- `key <provider> [value]` — putar API key provider (tanpa value = ditanya, input tersembunyi).
 - `status` — provider/model yang sedang dipakai.
 
 Provider: `ollama` (Ollama Cloud), `deepseek` (api.deepseek.com/anthropic), `opencode`

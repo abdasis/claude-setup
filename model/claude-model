@@ -9,7 +9,8 @@
 # Provider: ollama | deepseek | opencode.
 # Urutan pencarian key: --key (atau env CLAUDE_MODEL_KEY, supaya tidak tampil di
 # daftar proses) > <config-dir>/model-keys/<provider> > $<PROVIDER>_API_KEY >
-# ~/.hermes/.env. File key dibuat mode 0600, di luar repo.
+# ~/.hermes/.env. Key yang dipakai otomatis disimpan mode 0600 di file itu, jadi
+# pindah provider cukup `claude-model use <provider>` — tidak perlu input key lagi.
 set -u
 
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -201,10 +202,15 @@ cmd_use() {
       printf "  API key %s (%s) — hidden: " "$provider" "$(field "$provider" 3)"
       read -rs key; echo
       [ -n "$key" ] || die "key kosong"
-      remember_key "$provider" "$key"
     else
       die "belum ada key untuk $provider. Set $(field "$provider" 3), atau: claude-model key $provider"
     fi
+  fi
+  # Key yang baru dipakai selalu disimpan (file 0600), kecuali yang sudah dibaca
+  # dari file itu sendiri: sekali input, pindah-pindah provider tidak menanyakan
+  # key lagi. `claude-model key <provider> <value>` untuk memutar key.
+  if [ "$KEY_SOURCE" != "$(key_file "$provider")" ]; then
+    remember_key "$provider" "$key"
   fi
 
   echo "  menyambungkan provider=$provider model=$model"

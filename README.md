@@ -94,9 +94,12 @@ Pindah provider/model kapan saja, tanpa menjalankan ulang installer:
 claude-model list                    # provider, endpoint, model profil, status key
 claude-model use deepseek            # pindah provider (pakai model default profilnya)
 claude-model use opencode claude-opus-4-5
-claude-model key deepseek            # simpan API key (ditanya, input tersembunyi)
+claude-model key deepseek            # putar API key (ditanya, input tersembunyi)
 claude-model status                  # yang sedang dipakai
 ```
+
+Key yang dipakai otomatis tersimpan per provider (mode 0600), jadi pindah-pindah provider
+tidak perlu input key lagi.
 
 Dari dalam Claude: `/claude-model list`, `/claude-model use ollama`, dan seterusnya.
 
@@ -115,9 +118,11 @@ Catatan yang tidak bisa ditebak dari kodenya:
   `qwen*`). Model `gpt-*`/`grok-*` di sana memakai Responses API dan tidak bisa dipakai
   Claude Code. Header `x-opencode-session` dikirim lewat `ANTHROPIC_CUSTOM_HEADERS`; key itu
   dibuang otomatis ketika pindah ke provider yang tidak memerlukannya.
-- **Key disimpan mode 0600** di `~/.claude/model-keys/<provider>`. Urutan pencarian:
-  `--key`/`CLAUDE_MODEL_KEY` → file itu → `$<PROVIDER>_API_KEY` → `~/.hermes/.env`.
-  Tidak ada key yang masuk repo.
+- **Key diingat per provider.** Key yang dipakai otomatis disimpan mode 0600 di
+  `~/.claude/model-keys/<provider>`, jadi setelah sekali pakai, pindah-pindah provider
+  tidak pernah ditanya key lagi. Putar key: `claude-model key <provider>`.
+  Urutan pencarian: `--key`/`CLAUDE_MODEL_KEY` → file itu → `$<PROVIDER>_API_KEY` →
+  `~/.hermes/.env`. Tidak ada key yang masuk repo.
 - Setiap perubahan `settings.json` membuat backup di `~/.claude/backups/pre-claude-model-<timestamp>/`.
 
 ## Status bar & satu toggle
