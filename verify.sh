@@ -33,13 +33,19 @@ if [ -f "$SETTINGS" ]; then
 import json, sys
 d = json.load(open(sys.argv[1]))
 env = d.get("env", {})
-for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
-          "CLAUDE_CODE_MAX_CONTEXT_TOKENS"):
+for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "CLAUDE_CODE_MAX_CONTEXT_TOKENS"):
     if env.get(k):
-        tail = " (value hidden)" if k == "ANTHROPIC_AUTH_TOKEN" else f" = {env[k]}"
-        print(f"  \033[0;32mPASS\033[0m  env.{k}{tail}")
+        print(f"  \033[0;32mPASS\033[0m  env.{k} = {env[k]}")
     else:
         print(f"  \033[0;31mFAIL\033[0m  env.{k} missing")
+# Token bisa di salah satu dari dua header: ollama/deepseek pakai Bearer
+# (ANTHROPIC_AUTH_TOKEN), relay Zen opencode membaca x-api-key (ANTHROPIC_API_KEY).
+token_key = "ANTHROPIC_AUTH_TOKEN" if env.get("ANTHROPIC_AUTH_TOKEN") else (
+    "ANTHROPIC_API_KEY" if env.get("ANTHROPIC_API_KEY") else None)
+if token_key:
+    print(f"  \033[0;32mPASS\033[0m  env.{token_key} (value hidden)")
+else:
+    print("  \033[0;31mFAIL\033[0m  no API token in env (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY)")
 base = env.get("ANTHROPIC_BASE_URL", "")
 if base.rstrip("/").endswith("/v1"):
     print("  \033[0;33mWARN\033[0m  base URL ends with /v1 — Claude Code appends /v1/messages itself (expect 404)")
@@ -96,6 +102,29 @@ if python3 -c 'import json,os,sys;d=json.load(open(os.path.expanduser("~/.claude
   else warn "server did not report Connected (may need a new shell for PATH)"; fi
 else
   bad "codegraph MCP server not registered"
+fi
+
+head_ "model & provider (claude-model)"
+CM="$AGENT_DIR/bin/claude-model"
+if [ -x "$CM" ]; then pass "claude-model present"; else bad "$CM missing — run install.sh (step 2)"; fi
+if command -v claude-model >/dev/null 2>&1; then pass "claude-model on PATH"
+else warn "claude-model not on PATH (new shell, or call $CM directly)"; fi
+if [ -x "$CM" ]; then
+  mlist="$(CLAUDE_CONFIG_DIR="$AGENT_DIR" "$CM" list 2>/dev/null)"
+  for p in ollama deepseek opencode; do
+    if printf '%s' "$mlist" | grep -q " $p "; then pass "provider profil tersedia: $p"; else bad "provider $p tidak ada di profil claude-model"; fi
+  done
+  mstat="$(CLAUDE_CONFIG_DIR="$AGENT_DIR" "$CM" status 2>/dev/null)"
+  prov="$(printf '%s' "$mstat" | sed -n 's/.*provider  *: *//p' | cut -d' ' -f1)"
+  if [ -n "$prov" ] && [ "$prov" != "tidak" ]; then pass "provider aktif dikenali: $prov"
+  else bad "ANTHROPIC_BASE_URL tidak cocok dengan profil mana pun ($prov)"; fi
+  if printf '%s' "$mstat" | grep -q 'key *: *(kosong)'; then
+    bad "ANTHROPIC_AUTH_TOKEN kosong di settings.json"
+  elif printf '%s' "$mstat" | grep -q 'hanya di settings.json'; then
+    warn "key hanya ada di settings.json — menyimpan ulang dengan: claude-model key $prov"
+  else
+    pass "key provider bisa di-resolve ulang ($(printf '%s' "$mstat" | sed -n 's/.*key *: *//p' | cut -c1-60))"
+  fi
 fi
 
 head_ "status bar (ponytail + caveman badges)"

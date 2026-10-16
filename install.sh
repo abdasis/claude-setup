@@ -3,7 +3,8 @@
 #
 # What it does, in order:
 #   1. clone + install the personal config repo (~/.claude-config -> ~/.claude symlinks)
-#   2. wire the model: Anthropic-compatible endpoint (Ollama Cloud) + 1M context
+#   2. wire the model: pick a provider (ollama | deepseek | opencode) + model via
+#      an Anthropic-compatible endpoint, and install the claude-model switcher
 #   3. install Claude Code plugins: ponytail, caveman, superpowers
 #   4. install rtk and register its PreToolUse rewrite hook (+ RTK.md awareness)
 #   5. install codegraph and register its MCP server (+ auto-allow permission)
@@ -17,15 +18,14 @@
 # Usage: ./install.sh [--machine home|laptop|kantor] [--yes] [--dry-run] [options]
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 # ── defaults (override via env) ───────────────────────────────────────────────
 CONFIG_REPO="${CONFIG_REPO:-https://github.com/abdasis/claude-config.git}"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.claude-config}"
 AGENT_DIR="${AGENT_DIR:-$HOME/.claude}"
-MODEL="${CLAUDE_MODEL:-deepseek-v4.1-flash}"
-ENDPOINT="${CLAUDE_ENDPOINT:-https://ollama.com}"
-CONTEXT_TOKENS="${CLAUDE_CONTEXT_TOKENS:-1000000}"
+# Provider/model defaults hidup di model/claude-model (profil per provider) —
+# jangan diduplikasi di sini.
 RTK_INSTALL_URL="${RTK_INSTALL_URL:-https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh}"
 CODEGRAPH_INSTALL_URL="${CODEGRAPH_INSTALL_URL:-https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh}"
 SUPERPOWERS_MARKETPLACE="claude-plugins-official"
@@ -62,6 +62,8 @@ usage() {
 
 Options
   --machine <name>   install.sh profile of the config repo: home|laptop|kantor (default: laptop)
+  --provider <name>  model provider: ollama|deepseek|opencode (default: ollama, atau menu interaktif)
+  --model <id>       model id for the chosen provider (default: the provider's profile default)
   --yes              no prompts (telemetry stays at its default; key must be in env)
   --dry-run          print every mutating command instead of running it
   --no-config        skip step 1 (config repo)
@@ -74,10 +76,10 @@ Options
   -h, --help         this help
 
 Environment
-  OLLAMA_API_KEY     required for step 2. Falls back to ~/.hermes/.env, then prompts.
-  CLAUDE_MODEL       model id (default: $MODEL)
-  CLAUDE_ENDPOINT    Anthropic-compatible base URL (default: $ENDPOINT)
-  CLAUDE_CONTEXT_TOKENS  context window to declare (default: $CONTEXT_TOKENS)
+  OLLAMA_API_KEY     required when the provider is ollama. Falls back to ~/.hermes/.env, then prompts.
+  CLAUDE_PROVIDER    provider model: ollama|deepseek|opencode (default: ollama, atau menu interaktif)
+  CLAUDE_MODEL       model id (default: model default profil provider)
+  OLLAMA_API_KEY / DEEPSEEK_API_KEY / OPENCODE_ZEN_API_KEY  key provider terpilih
   CONFIG_REPO / CONFIG_DIR / AGENT_DIR  override paths and sources
 
 Version $VERSION
@@ -88,6 +90,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --machine) MACHINE="${2:-}"; shift 2 ;;
     --machine=*) MACHINE="${1#*=}"; shift ;;
+    --provider) CLAUDE_PROVIDER="${2:-}"; shift 2 ;;
+    --provider=*) CLAUDE_PROVIDER="${1#*=}"; shift ;;
+    --model) CLAUDE_MODEL="${2:-}"; shift 2 ;;
+    --model=*) CLAUDE_MODEL="${1#*=}"; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-config) DO_CONFIG=0; shift ;;
@@ -203,42 +209,76 @@ fi
 
 # ── 2. model / endpoint ───────────────────────────────────────────────────────
 if [ "$DO_MODEL" = 1 ]; then
-  step "2/6  Model wiring ($MODEL @ $ENDPOINT)"
-  KEY="${OLLAMA_API_KEY:-}"
-  if [ -z "$KEY" ] && [ -r "$HOME/.hermes/.env" ]; then
-    KEY="$(sed -n 's/^OLLAMA_API_KEY=//p' "$HOME/.hermes/.env" | head -1 | tr -d '"'"'"'')"
-    [ -n "$KEY" ] && info "key read from ~/.hermes/.env"
-  fi
-  if [ -z "$KEY" ]; then
+  SRC_MODEL="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/model"
+  PROVIDER="${CLAUDE_PROVIDER:-}"
+  if [ -z "$PROVIDER" ]; then
     if [ "$ASSUME_YES" = 1 ] || [ ! -t 0 ]; then
-      fail "OLLAMA_API_KEY is empty — export it, or add it to ~/.hermes/.env, or drop --yes"
-      exit 1
+      PROVIDER="ollama"
+    else
+      echo
+      echo "  Provider model untuk Claude Code:"
+      printf '    1) ollama   %s  (Ollama Cloud — butuh OLLAMA_API_KEY)\n' "https://ollama.com"
+      printf '    2) deepseek %s  (butuh DEEPSEEK_API_KEY)\n' "https://api.deepseek.com/anthropic"
+      printf '    3) opencode %s  (relay Zen, butuh OPENCODE_ZEN_API_KEY)\n' "https://opencode.ai/zen"
+      printf "  Pilih [1/2/3, default 1]: "
+      read -r choice
+      case "${choice:-1}" in
+        1|ollama)   PROVIDER="ollama" ;;
+        2|deepseek) PROVIDER="deepseek" ;;
+        3|opencode) PROVIDER="opencode" ;;
+        *) fail "pilihan provider tidak dikenal: $choice"; exit 2 ;;
+      esac
     fi
-    printf "  Ollama Cloud API key (https://ollama.com/settings) — hidden: "
-    read -rs KEY; echo
-    [ -z "$KEY" ] && { fail "empty key"; exit 1; }
   fi
-  run mkdir -p "$AGENT_DIR"
-  if [ ! -f "$AGENT_DIR/settings.json" ]; then run sh -c "echo '{}' > '$AGENT_DIR/settings.json'"; fi
-  # endpoint has no /v1 suffix: Claude Code appends /v1/messages itself
-  json_set "$AGENT_DIR/settings.json" "$(python3 - "$KEY" "$ENDPOINT" "$MODEL" "$CONTEXT_TOKENS" <<'PY'
-import json, sys
-key, endpoint, model, ctx = sys.argv[1:5]
-print(json.dumps({
-    "ANTHROPIC_BASE_URL": endpoint,
-    "ANTHROPIC_AUTH_TOKEN": key,
-    "ANTHROPIC_MODEL": model,
-    "ANTHROPIC_SMALL_FAST_MODEL": model,
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
-    "CLAUDE_CODE_SUBAGENT_MODEL": model,
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": ctx,
-}))
-PY
-)" env
-  info "all model aliases point at $MODEL so Claude Code never asks for a claude-* model"
-  info "context declared as $CONTEXT_TOKENS tokens (endpoint must actually serve that much)"
+  case "$PROVIDER" in
+    ollama)   KEY_ENV="OLLAMA_API_KEY";        KEY_HINT="https://ollama.com/settings" ;;
+    deepseek) KEY_ENV="DEEPSEEK_API_KEY";      KEY_HINT="https://platform.deepseek.com/api_keys" ;;
+    opencode) KEY_ENV="OPENCODE_ZEN_API_KEY";  KEY_HINT="https://opencode.ai/auth" ;;
+    *) fail "provider tidak dikenal: $PROVIDER (ollama|deepseek|opencode)"; exit 2 ;;
+  esac
+
+  step "2/6  Model & provider ($PROVIDER)"
+  if [ ! -f "$SRC_MODEL/claude-model" ]; then
+    warn "model/claude-model not found next to install.sh — model wiring skipped"
+  else
+    # CLI dipasang lebih dulu: step ini memakainya, dan cara pakai di mesin yang
+    # sudah jalan cuma `claude-model use <provider> [model]`.
+    run mkdir -p "$AGENT_DIR/bin" "$HOME/.local/bin"
+    run install -m 0755 "$SRC_MODEL/claude-model" "$AGENT_DIR/bin/claude-model"
+    run ln -sfn "$AGENT_DIR/bin/claude-model" "$HOME/.local/bin/claude-model"
+    ok "claude-model installed ($AGENT_DIR/bin/claude-model, symlinked into ~/.local/bin)"
+    if [ -f "$SRC_MODEL/claude-model.md" ] && ! cmp -s "$SRC_MODEL/claude-model.md" "$AGENT_DIR/commands/claude-model.md" 2>/dev/null; then
+      run mkdir -p "$AGENT_DIR/commands"
+      run install -m 0644 "$SRC_MODEL/claude-model.md" "$AGENT_DIR/commands/claude-model.md"
+      ok "slash command installed: /claude-model"
+    fi
+
+    # key: env → ~/.hermes/.env → prompt (hidden). Kalau belum ada, CLI yang
+    # menanyakan sekaligus menyimpannya; mode --yes tanpa key tetap gagal keras.
+    KEY="$(eval "printf '%s' \"\${$KEY_ENV:-}\"")"
+    if [ -z "$KEY" ] && [ -r "$HOME/.hermes/.env" ]; then
+      KEY="$(sed -n "s/^$KEY_ENV=//p" "$HOME/.hermes/.env" | head -1 | tr -d "\"'")"
+      [ -n "$KEY" ] && info "$KEY_ENV read from ~/.hermes/.env"
+    fi
+    if [ -z "$KEY" ] && [ ! -s "$AGENT_DIR/model-keys/$PROVIDER" ]; then
+      if [ "$ASSUME_YES" = 1 ] || [ ! -t 0 ]; then
+        fail "$KEY_ENV is empty — export it, add it to ~/.hermes/.env, or run: claude-model key $PROVIDER"
+        exit 1
+      fi
+      info "no $KEY_ENV yet — claude-model will ask for it (hidden input, stored 0600)"
+    fi
+
+    MODEL_ID="${CLAUDE_MODEL:-}"
+    if [ "$DRY_RUN" = 1 ]; then
+      echo "  ${D}[dry-run] would wire provider=$PROVIDER model=${MODEL_ID:-<default profil>} key=$([ -n "$KEY" ] && echo '<ada>' || echo '<kosong/ditanya>')${R}"
+    else
+      # key lewat env, bukan argv: supaya tidak muncul di daftar proses / output dry-run
+      env CLAUDE_CONFIG_DIR="$AGENT_DIR" CLAUDE_MODEL_KEY="$KEY" \
+        bash "$AGENT_DIR/bin/claude-model" use "$PROVIDER" ${MODEL_ID:+"$MODEL_ID"} \
+        || { fail "model wiring gagal — jalankan manual: claude-model use $PROVIDER"; exit 1; }
+    fi
+    info "ganti provider/model kapan saja: claude-model list | claude-model use <provider> [model]"
+  fi
 else
   step "2/6  Model wiring"; skip "disabled (--no-model)"
 fi

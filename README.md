@@ -69,13 +69,56 @@ akan lulus padahal perintah `fd` tidak ada, jadi script membuat symlink
 | Langkah | Hasil |
 |---|---|
 | 1. Config repo | `~/.claude-config` di-clone, `install.sh <machine>` dijalankan → symlink `CLAUDE.md`, `mcp.json`, `skills/`, `agents/`, `commands/` ke `~/.claude/` |
-| 2. Model | `~/.claude/settings.json` → blok `env`: base URL, auth token, model, semua alias model, dan `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
+| 2. Model | provider + model Anthropic-compatible, dipilih dari `ollama`/`deepseek`/`opencode` (+ CLI `claude-model` untuk pindah kapan saja) |
 | 3. Plugin | `ponytail@ponytail`, `caveman@caveman`, `superpowers@claude-plugins-official` (+ userConfig caveman) |
 | 4. rtk | binary `rtk` + hook `PreToolUse` (`rtk hook claude`) + `RTK.md` di lokasi yang benar-benar di-resolve `@RTK.md` |
 | 5. codegraph | binary `codegraph` + MCP server (user scope, `alwaysLoad`) + permission `mcp__codegraph__*` |
 | 6. Status bar | satu `statusLine` gabungan (badge `[PONYTAIL]` + `[CAVEMAN]`) + CLI `claude-statsbar` untuk toggle on/off, plus slash command `/statsbar` |
 
 Setelah selesai: `./verify.sh` (atau `./verify.sh --smoke` untuk sekalian tes satu request nyata).
+
+## Memilih provider & model
+
+Step 2 dijalankan dengan `--provider` (atau menu, kalau dijalankan interaktif tanpa flag), lalu
+`claude-model` yang menulis blok `env` di `~/.claude/settings.json`.
+
+| Provider | Endpoint (Anthropic-compatible) | Model default | Key |
+|---|---|---|---|
+| `ollama` | `https://ollama.com` | `deepseek-v4.1-flash` | `OLLAMA_API_KEY` |
+| `deepseek` | `https://api.deepseek.com/anthropic` | `deepseek-chat` | `DEEPSEEK_API_KEY` |
+| `opencode` | `https://opencode.ai/zen` | `claude-sonnet-4-5` | `OPENCODE_ZEN_API_KEY` |
+
+Pindah provider/model kapan saja, tanpa menjalankan ulang installer:
+
+```bash
+claude-model list                    # provider, endpoint, model profil, status key
+claude-model use deepseek            # pindah provider (pakai model default profilnya)
+claude-model use opencode claude-opus-4-5
+claude-model key deepseek            # simpan API key (ditanya, input tersembunyi)
+claude-model status                  # yang sedang dipakai
+```
+
+Dari dalam Claude: `/claude-model list`, `/claude-model use ollama`, dan seterusnya.
+
+Catatan yang tidak bisa ditebak dari kodenya:
+
+- **Env baru dipakai di sesi Claude berikutnya** — Claude Code membaca `env` saat start,
+  jadi restart dulu sebelum menyimpulkan modelnya belum berganti.
+- **Semua alias model diarahkan ke satu model** (`ANTHROPIC_MODEL` plus haiku/sonnet/opus/
+  small-fast/subagent), supaya Claude Code tidak pernah meminta model `claude-*` yang tidak
+  ada di endpoint non-Anthropic.
+- **Base URL tanpa akhiran `/v1`.** Claude Code menambahkan `/v1/messages` sendiri: rute
+  Anthropic DeepSeek memang di `/anthropic`, relay Zen melayani Messages di `/zen`.
+- **`CLAUDE_CODE_MAX_CONTEXT_TOKENS` ikut profil**: 1.000.000 untuk `deepseek-v4.1-flash` di
+  Ollama Cloud, 131.072 untuk DeepSeek langsung, 200.000 untuk model Claude lewat Zen.
+- **Relay Zen** hanya berguna untuk model yang dilayani lewat Messages API (`claude-*`,
+  `qwen*`). Model `gpt-*`/`grok-*` di sana memakai Responses API dan tidak bisa dipakai
+  Claude Code. Header `x-opencode-session` dikirim lewat `ANTHROPIC_CUSTOM_HEADERS`; key itu
+  dibuang otomatis ketika pindah ke provider yang tidak memerlukannya.
+- **Key disimpan mode 0600** di `~/.claude/model-keys/<provider>`. Urutan pencarian:
+  `--key`/`CLAUDE_MODEL_KEY` → file itu → `$<PROVIDER>_API_KEY` → `~/.hermes/.env`.
+  Tidak ada key yang masuk repo.
+- Setiap perubahan `settings.json` membuat backup di `~/.claude/backups/pre-claude-model-<timestamp>/`.
 
 ## Status bar & satu toggle
 
@@ -119,12 +162,16 @@ sesi yang sedang jalan pakai `/ponytail off` dan `/caveman off`.
 
 - Claude Code sudah terpasang (`claude --version` jalan)
 - `git`, `curl`, `python3`, dan `node` (node dibutuhkan hook plugin; tanpa itu hook hanya mencetak error tapi skill tetap jalan)
-- API key Ollama Cloud — dari env `OLLAMA_API_KEY`, atau otomatis dibaca dari `~/.hermes/.env`, atau ditanya (input tersembunyi)
+- API key provider yang dipilih — dari env `OLLAMA_API_KEY` / `DEEPSEEK_API_KEY` /
+  `OPENCODE_ZEN_API_KEY`, atau otomatis dibaca dari `~/.hermes/.env`, atau ditanya (input
+  tersembunyi). Pindah provider nanti: `claude-model key <provider>`.
 
 ## Opsi
 
 ```
 --machine <home|laptop|kantor>   profil mesin untuk install.sh config repo (default: laptop)
+--provider <ollama|deepseek|opencode>  provider model (default: ollama, atau menu interaktif)
+--model <id>                     model id untuk provider terpilih (default: model profil provider)
 --yes                            tanpa prompt (key harus sudah ada di env)
 --dry-run                        cetak perintah tanpa menjalankannya
 --no-config / --no-model / --no-plugins / --no-rtk / --no-codegraph / --no-statsbar
@@ -193,6 +240,9 @@ Tidak ada rahasia di repo ini: token hanya masuk ke `~/.claude/settings.json`
 | Error `node: command not found` di hook | node tidak ada di PATH non-interaktif |
 | `codegraph` tidak ketemu padahal baru dipasang | Buka shell baru (PATH belum di-refresh) |
 | `@RTK.md` tidak ter-import | Cek `./verify.sh` — file harus ada di realpath `CLAUDE.md` |
+| Model tidak berubah setelah `claude-model use` | Env dibaca saat Claude Code start — restart sesinya dulu |
+| `401` / `Model ... is not supported` di relay Zen | Model harus dari keluarga yang dilayani Messages API (`claude-*`, `qwen*`); lihat `claude-model list` |
+| DeepSeek balas 404 | Base URL harus `https://api.deepseek.com/anthropic` (bukan `/v1`), sudah diatur profil `deepseek` |
 | Badge ponytail/caveman tidak muncul | `claude-statsbar status` (badge harus `on`), lalu `./verify.sh` bagian "status bar" — salinan script badge & `statusLine` dicek di sana |
 | Workspace tetap penuh teks ruleset | Mode sedang aktif; itu memang cara plugin mengirim instruksinya. `claude-statsbar off` (berlaku sesi berikutnya) atau `/ponytail off` + `/caveman off` sekarang |
 | `claude mcp list` kosong | Belum ada MCP terdaftar; jalankan langkah 5 atau `claude mcp add-json` manual |

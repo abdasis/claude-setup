@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+# claude-model — pilih provider + model yang dipakai Claude Code.
+#
+#   claude-model list                        daftar provider, endpoint, model, status key
+#   claude-model use <provider> [model]      pindah provider/model (menulis blok env settings.json)
+#   claude-model key <provider> [value]      simpan/putar API key (tanpa argumen = ditanya)
+#   claude-model status                      apa yang sedang dipakai
+#
+# Provider: ollama | deepseek | opencode.
+# Urutan pencarian key: --key (atau env CLAUDE_MODEL_KEY, supaya tidak tampil di
+# daftar proses) > <config-dir>/model-keys/<provider> > $<PROVIDER>_API_KEY >
+# ~/.hermes/.env. File key dibuat mode 0600, di luar repo.
+set -u
+
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+SETTINGS="$CFG/settings.json"
+KEYS="$CFG/model-keys"
+HERMES_ENV="${HERMES_ENV:-$HOME/.hermes/.env}"
+
+# name | base url | key env | model default | context tokens | header tambahan | model pilihan | header auth
+#
+# - base url ditulis apa adanya: Claude Code sendiri yang menambahkan /v1/messages.
+#   DeepSeek menyediakan rute Anthropic di /anthropic; relay Zen opencode melayani
+#   model claude-*/qwen* lewat Messages API di /zen (tanpa akhiran /v1).
+# - header x-opencode-session dipakai relay Zen untuk pinning sesi; Claude Code
+#   mengirimnya lewat ANTHROPIC_CUSTOM_HEADERS.
+# - kolom terakhir = header auth yang benar-benar diterima endpoint itu (diuji
+#   langsung ke ketiganya): ollama hanya Bearer (ANTHROPIC_AUTH_TOKEN), Zen membaca
+#   x-api-key (ANTHROPIC_API_KEY), DeepSeek menerima keduanya.
+PROFILES='
+ollama|https://ollama.com|OLLAMA_API_KEY|deepseek-v4.1-flash|1000000||deepseek-v4.1-flash deepseek-v4-pro glm-5.3 kimi-k3 qwen3.5:397b minimax-m3|bearer
+deepseek|https://api.deepseek.com/anthropic|DEEPSEEK_API_KEY|deepseek-chat|131072||deepseek-chat deepseek-reasoner|bearer
+opencode|https://opencode.ai/zen|OPENCODE_ZEN_API_KEY|claude-sonnet-4-5|200000|x-opencode-session: claude-code|claude-sonnet-4-5 claude-sonnet-4-6 claude-opus-4-5 claude-haiku-4-5 qwen3.6-plus qwen3.5-plus|apikey
+'
+
+die() { echo "claude-model: $*" >&2; exit 1; }
+field() { # field <provider> <kolom>
+  printf '%s\n' "$PROFILES" | awk -F'|' -v n="$1" -v i="$2" '$1==n {print $i; exit}'
+}
+providers() { printf '%s\n' "$PROFILES" | awk -F'|' 'NF>1 && $1!="" {print $1}'; }
+
+env_get() { # env_get <key> [file]
+  python3 -c '
+import json, sys, os
+p = sys.argv[1]
+if not os.path.exists(p): raise SystemExit
+print(json.load(open(p)).get("env", {}).get(sys.argv[2], ""))
+' "${2:-$SETTINGS}" "$1" 2>/dev/null
+}
+env_base() { env_get ANTHROPIC_BASE_URL "${1:-$SETTINGS}"; }
+
+norm_base() { printf '%s' "${1%/}" | sed 's#/v1$##'; }
+
+active_provider() { # nama provider yang cocok dengan ANTHROPIC_BASE_URL
+  local cur; cur="$(norm_base "$(env_base)")"
+  local p
+  for p in $(providers); do
+    [ -n "$cur" ] && [ "$cur" = "$(norm_base "$(field "$p" 2)")" ] && { printf '%s' "$p"; return; }
+  done
+}
+
+key_from_env_file() { # key_from_env_file <nama env var>
+  [ -r "$HERMES_ENV" ] || return 0
+  sed -n "s/^$1=//p" "$HERMES_ENV" | head -1 | tr -d "\"'"
+}
+
+key_file() { printf '%s/%s' "$KEYS" "$1"; }
+
+resolve_key() { # resolve_key <provider> [key eksplisit] -> set KEY_VALUE + KEY_SOURCE
+  local provider="$1" explicit="${2:-}" envname ev fv
+  envname="$(field "$provider" 3)"
+  KEY_VALUE=""; KEY_SOURCE=""
+  if [ -n "$explicit" ]; then KEY_SOURCE="argumen/--key"; KEY_VALUE="$explicit"; return; fi
+  if [ -s "$(key_file "$provider")" ]; then
+    KEY_SOURCE="$(key_file "$provider")"; KEY_VALUE="$(cat "$(key_file "$provider")")"; return
+  fi
+  eval "ev=\${$envname:-}"
+  if [ -n "$ev" ]; then KEY_SOURCE="\$$envname"; KEY_VALUE="$ev"; return; fi
+  fv="$(key_from_env_file "$envname")"
+  if [ -n "$fv" ]; then KEY_SOURCE="$HERMES_ENV"; KEY_VALUE="$fv"; return; fi
+}
+
+remember_key() { # remember_key <provider> <key>
+  mkdir -p "$KEYS"; chmod 700 "$KEYS" 2>/dev/null || true
+  (umask 077; printf '%s\n' "$2" >"$(key_file "$1")")
+  echo "  key disimpan: $(key_file "$1") (mode 0600)"
+}
+
+write_env() { # write_env <provider> <model> <key>  — tulis blok env, buang key lama yang tidak dipakai
+  local provider="$1" model="$2" key="$3"
+  python3 - "$SETTINGS" "$(field "$provider" 2)" "$key" "$model" "$(field "$provider" 5)" "$(field "$provider" 6)" "$(field "$provider" 8)" <<'PY'
+import datetime, json, os, shutil, sys
+settings, base, key, model, ctx, headers, auth = sys.argv[1:8]
+updates = {
+    "ANTHROPIC_BASE_URL": base,
+    "ANTHROPIC_MODEL": model,
+    # semua alias diarahkan ke model yang sama: Claude Code tidak boleh meminta
+    # model claude-* yang tidak ada di endpoint ini.
+    "ANTHROPIC_SMALL_FAST_MODEL": model,
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+    "CLAUDE_CODE_SUBAGENT_MODEL": model,
+}
+if ctx:
+    updates["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = ctx
+# Header auth tidak bisa disamaratakan: relay Zen membaca x-api-key
+# (ANTHROPIC_API_KEY), Ollama Cloud hanya menerima Authorization: Bearer
+# (ANTHROPIC_AUTH_TOKEN). Yang tidak dipakai dibuang supaya tidak ada dua
+# credential yang saling menimpa.
+if auth == "apikey":
+    updates["ANTHROPIC_API_KEY"] = key
+    drop = ["ANTHROPIC_AUTH_TOKEN"]
+else:
+    updates["ANTHROPIC_AUTH_TOKEN"] = key
+    drop = ["ANTHROPIC_API_KEY"]
+# ANTHROPIC_CUSTOM_HEADERS hanya milik relay yang memerlukannya.
+if headers:
+    updates["ANTHROPIC_CUSTOM_HEADERS"] = headers
+else:
+    drop.append("ANTHROPIC_CUSTOM_HEADERS")
+
+data = json.load(open(settings)) if os.path.exists(settings) else {}
+env = data.setdefault("env", {})
+changed = {k: v for k, v in updates.items() if env.get(k) != v}
+removed = [k for k in drop if k in env]
+if not changed and not removed:
+    print("  tidak ada perubahan: env sudah menunjuk ke sana")
+    raise SystemExit
+bdir = os.path.join(os.path.dirname(settings), "backups",
+                    "pre-claude-model-" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+os.makedirs(bdir, exist_ok=True)
+if os.path.exists(settings):
+    shutil.copy2(settings, os.path.join(bdir, os.path.basename(settings)))
+env.update(changed)
+for k in removed:
+    env.pop(k, None)
+tmp = settings + ".tmp"
+json.dump(data, open(tmp, "w"), indent=2)
+os.replace(tmp, settings)
+print("  backup : " + bdir)
+print("  diubah : " + (", ".join(sorted(changed)) or "-"))
+if removed:
+    print("  dibuang: " + ", ".join(sorted(removed)))
+PY
+}
+
+cmd_list() {
+  local active; active="$(active_provider)"
+  printf '  %-9s %-34s %-22s %s\n' "PROVIDER" "ENDPOINT" "MODEL (profil)" "KEY"
+  local p
+  for p in $(providers); do
+    local mark=" " src kf ev
+    [ "$p" = "$active" ] && mark="*"
+    kf="$KEYS/$p"; eval "ev=\${$(field "$p" 3):-}"
+    if [ -s "$kf" ]; then src="$kf"
+    elif [ -n "$ev" ]; then src="\$$(field "$p" 3)"
+    elif [ -n "$(key_from_env_file "$(field "$p" 3)")" ]; then src="$HERMES_ENV"
+    else src="belum ada — claude-model key $p"; fi
+    printf '  %-9s %-34s %-22s %s\n' "$mark$p" "$(field "$p" 2)" "$(field "$p" 4)" "$src"
+  done
+  echo
+  echo "  header auth: ollama & deepseek = Authorization Bearer (ANTHROPIC_AUTH_TOKEN),"
+  echo "               opencode (relay Zen) = x-api-key (ANTHROPIC_API_KEY) — diatur otomatis oleh 'use'."
+  echo
+  echo "  model lain yang tersedia:"
+  for p in $(providers); do printf '    %-9s %s\n' "$p" "$(field "$p" 7)"; done
+}
+
+cmd_status() {
+  local base model ctx provider key_src tok auth_kind
+  base="$(env_base)"; model="$(env_get ANTHROPIC_MODEL)"; ctx="$(env_get CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+  provider="$(active_provider)"; provider="${provider:-tidak dikenal}"
+  tok="$(env_get ANTHROPIC_AUTH_TOKEN)"; auth_kind="Authorization: Bearer"
+  if [ -z "$tok" ]; then tok="$(env_get ANTHROPIC_API_KEY)"; auth_kind="x-api-key"; fi
+  if [ -n "$tok" ]; then
+    resolve_key "$provider"
+    key_src="${KEY_SOURCE:-hanya di settings.json (tidak ada key tersimpan untuk provider ini)}"
+  else
+    key_src="(kosong)"; auth_kind="-"
+  fi
+  echo "  provider  : $provider  ($base)"
+  echo "  model     : ${model:-–}"
+  echo "  context   : ${ctx:-–} token (CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+  echo "  key       : $key_src  [$auth_kind]"
+  echo "  settings  : $SETTINGS"
+  echo
+  echo "  Ganti provider: claude-model use <ollama|deepseek|opencode> [model]"
+}
+
+cmd_use() {
+  local provider="${1:-}" model="${2:-}" key="${3:-}"
+  [ -n "$provider" ] || { cmd_list; exit 1; }
+  [ -n "$(field "$provider" 2)" ] || die "provider tidak dikenal: $provider (pilih: $(providers | tr '\n' ' '))"
+  [ -n "$model" ] || model="$(field "$provider" 4)"
+
+  resolve_key "$provider" "$key"
+  key="$KEY_VALUE"
+  if [ -z "$key" ]; then
+    if [ -t 0 ]; then
+      printf "  API key %s (%s) — hidden: " "$provider" "$(field "$provider" 3)"
+      read -rs key; echo
+      [ -n "$key" ] || die "key kosong"
+      remember_key "$provider" "$key"
+    else
+      die "belum ada key untuk $provider. Set $(field "$provider" 3), atau: claude-model key $provider"
+    fi
+  fi
+
+  echo "  menyambungkan provider=$provider model=$model"
+  write_env "$provider" "$model" "$key"
+  echo
+  echo "  Restart Claude Code supaya env baru dipakai (session berjalan masih memakai model lama)."
+  echo "  Cek    : claude-model status"
+}
+
+cmd_key() {
+  local provider="${1:-}" value="${2:-}"
+  [ -n "$provider" ] || die "usage: claude-model key <ollama|deepseek|opencode> [value]"
+  [ -n "$(field "$provider" 2)" ] || die "provider tidak dikenal: $provider"
+  if [ -z "$value" ]; then
+    if [ -t 0 ]; then
+      printf "  API key %s (%s) — hidden: " "$provider" "$(field "$provider" 3)"
+      read -rs value; echo
+    elif [ -n "${CLAUDE_MODEL_KEY:-}" ]; then
+      value="$CLAUDE_MODEL_KEY"
+    else
+      die "tidak ada key yang diberikan (argumen, stdin interaktif, atau \$CLAUDE_MODEL_KEY)"
+    fi
+  fi
+  [ -n "$value" ] || die "key kosong"
+  remember_key "$provider" "$value"
+}
+
+case "${1:-status}" in
+  list)   cmd_list ;;
+  use)
+    shift
+    provider="${1:-}"; [ $# -gt 0 ] && shift
+    model=""; key="${CLAUDE_MODEL_KEY:-}"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --key)  key="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+        --key=*) key="${1#*=}"; shift ;;
+        *) [ -z "$model" ] && model="$1"; shift ;;
+      esac
+    done
+    cmd_use "$provider" "$model" "$key"
+    ;;
+  key)    shift; cmd_key "${1:-}" "${2:-}" ;;
+  status) cmd_status ;;
+  *)      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
