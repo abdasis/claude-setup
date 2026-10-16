@@ -166,7 +166,11 @@ for bin in claude git curl python3; do
 done
 if command -v node >/dev/null 2>&1; then ok "node ${D}($(node --version))${R} — needed by plugin hooks"
 else warn "node not found — plugin hooks will print 'node: command not found' (skills still work)"; fi
-[ "$missing" = 1 ] && { fail "install the missing tools first"; exit 1; }
+[ "$missing" = 1 ] && {
+  fail "install the missing tools first"
+  [ -x "$(dirname "$0")/os-tools.sh" ] && info "run ./os-tools.sh — it installs ripgrep/node/python3/tmux + dev utilities for this distro"
+  exit 1
+}
 
 echo
 echo "${B}${CY}  claude-setup${R}  ${D}v$VERSION${R}"

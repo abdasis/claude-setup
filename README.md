@@ -9,12 +9,48 @@ Dibuat untuk setup pribadi: repo config, model lewat endpoint Anthropic-compatib
 ```bash
 git clone https://github.com/abdasis/claude-setup.git
 cd claude-setup
+./os-tools.sh                     # langkah 0: alat OS (lihat di bawah)
 ./install.sh --machine home
 ```
 
 > Jalankan dari clone (bukan `curl | bash`) supaya kamu bisa baca dulu isinya.
 > Kalau tetap mau satu baris:
 > `curl -fsSL https://raw.githubusercontent.com/abdasis/claude-setup/main/install.sh | bash -s -- --machine home`
+
+## Langkah 0 — alat OS (`os-tools.sh`)
+
+Claude Code sendiri hanya menyebut satu dependensi OS: **ripgrep** (biasanya
+sudah dibundel; kalau search gagal, pakai paket distro). Selebihnya kebutuhan
+praktis: `node` untuk hook plugin, `tmux` untuk sesi panjang/interaktif,
+`python3`+`pip`+`venv`, dan utilitas yang dipakai agen saat bekerja.
+
+```bash
+./os-tools.sh                  # required + recommended
+./os-tools.sh --required-only  # hanya yang dipakai Claude Code & plugin-nya
+./os-tools.sh --dry-run        # tampilkan yang kurang tanpa memasang
+```
+
+| Tier | Isi |
+|---|---|
+| required | ripgrep, git, curl, nodejs, npm, python3, ca-certificates, openssh-client, unzip, xz-utils, build-essential, tmux |
+| recommended | jq, python3-pip, python3-venv, python3-yaml, fd-find, shellcheck, tree, htop, pkg-config, cmake, zip, gnupg, libsecret-tools, dbus-x11 |
+
+Paket distro diutamakan karena dapat update keamanan. Hanya jalur **apt** yang
+diuji penulis — mapping `dnf`/`pacman`/`apk` best-effort.
+
+**Kalau `sudo` minta password** (skrip tidak akan menggantung menunggu input):
+skrip mencetak perintah siap-tempel, dan — kecuali `--no-user-fallback` —
+memasang binary user-space dari rilis resmi GitHub ke `~/.local/bin`
+(ripgrep, fd, shellcheck; `tmux` dan `pip` tidak punya rilis statis, jadi
+wajib lewat paket manager):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ripgrep tmux python3-pip python3-venv fd-find shellcheck tree htop pkg-config cmake libsecret-tools dbus-x11
+```
+
+Kalau nanti paket distro sudah dipasang, hapus salinan lokalnya supaya update
+datang dari package manager: `rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/shellcheck`
 
 ## Yang dipasang
 
@@ -105,6 +141,8 @@ Tidak ada rahasia di repo ini: token hanya masuk ke `~/.claude/settings.json`
 | `codegraph` tidak ketemu padahal baru dipasang | Buka shell baru (PATH belum di-refresh) |
 | `@RTK.md` tidak ter-import | Cek `./verify.sh` — file harus ada di realpath `CLAUDE.md` |
 | `claude mcp list` kosong | Belum ada MCP terdaftar; jalankan langkah 5 atau `claude mcp add-json` manual |
+| `os-tools.sh` berhenti di soal `sudo` | Bukan error: jalankan perintah `sudo apt-get install ...` yang dicetaknya di terminalmu, lalu ulangi `./os-tools.sh` |
+| `rg`/`fd` jalan tapi versinya beda dari paket distro | Salinan user-space di `~/.local/bin` mendahului `/usr/bin`; hapus kalau mau pakai paket distro |
 
 ## Lisensi
 

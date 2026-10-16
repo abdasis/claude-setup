@@ -7,8 +7,8 @@ set -uo pipefail
 SMOKE=0
 [ "${1:-}" = "--smoke" ] && SMOKE=1
 
-if [ -t 1 ]; then R=$'\033[0m'; GR=$'\033[0;32m'; RED=$'\033[0;31m'; YE=$'\033[0;33m'; B=$'\033[1m'; D=$'\033[2m'
-else R=; GR=; RED=; YE=; B=; D=; fi
+if [ -t 1 ]; then R=$'\033[0m'; GR=$'\033[0;32m'; RED=$'\033[0;31m'; YE=$'\033[0;33m'; B=$'\033[1m'
+else R=; GR=; RED=; YE=; B=; fi
 
 PASS=0; FAIL=0; WARN=0
 pass() { echo "  ${GR}PASS${R}  $*"; PASS=$((PASS + 1)); }
