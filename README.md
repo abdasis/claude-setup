@@ -125,6 +125,22 @@ Catatan yang tidak bisa ditebak dari kodenya:
   `~/.hermes/.env`. Tidak ada key yang masuk repo.
 - Setiap perubahan `settings.json` membuat backup di `~/.claude/backups/pre-claude-model-<timestamp>/`.
 
+## Setelan terbaik (default yang dipasang)
+
+Step 6 menutup dengan `claude-statsbar ensure`, yang memasang setelan berikut tanpa
+menimpa pilihan yang sudah ada:
+
+| Setelan | Nilai | Efek |
+|---|---|---|
+| `defaultMode` ponytail | `full` | ponytail **aktif otomatis** di setiap sesi Claude baru |
+| `defaultMode` caveman | `caveman` | caveman **aktif otomatis** di setiap sesi Claude baru |
+| badge status bar | `on` | badge ikon + segmen ctx/tok tampil |
+| panel band | disembunyikan | hanya status bar yang tampil di atas prompt |
+
+Jalankan ulang kapan saja: `claude-statsbar ensure` (idempotent — yang sudah diatur
+dibiarkan, termasuk kalau kamu sengaja pernah mematikan salah satunya). Untuk
+mengubah: `claude-statsbar on|off|toggle|band on|band off|badges on|badges off`.
+
 ## Status bar & satu toggle
 
 Claude Code hanya mengizinkan **satu** `statusLine`, sementara ponytail dan caveman

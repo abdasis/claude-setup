@@ -171,10 +171,11 @@ if [ -x "$SB" ]; then
     echo "        badge kosong (mode off) — rata kanan tidak diuji"
   else
     nvis="$(printf '%s' "$vis" | LC_ALL=C.UTF-8 wc -m | tr -d ' ')"   # karakter, bukan byte (ikon multibyte)
-    if [ "$nvis" -eq 120 ]; then
-      pass "badge rata kanan: panjang baris $nvis = COLUMNS 120"
+    want=$(( 120 - ${CLAUDE_STATSBAR_MARGIN:-2} ))
+    if [ "$nvis" -eq "$want" ]; then
+      pass "badge rata kanan: panjang baris $nvis = COLUMNS 120 - margin ${CLAUDE_STATSBAR_MARGIN:-2}"
     else
-      warn "badge tidak rata kanan (panjang $nvis, harusnya 120) — cek COLUMNS atau CLAUDE_STATSBAR_ALIGN"
+      warn "badge tidak rata kanan (panjang $nvis, harusnya $want) — cek COLUMNS/CLAUDE_STATSBAR_ALIGN/MARGIN"
     fi
   fi
 
@@ -209,6 +210,20 @@ if [ -f "$BANDFLAG" ] && [ "$(head -c 8 "$BANDFLAG" 2>/dev/null | tr -d '[:space
 else
   warn "panel band ponytail tampil di atas prompt — sembunyikan: claude-statsbar band off"
 fi
+
+# Klaim inti "langsung aktif tiap buka Claude": defaultMode plugin tidak off/kosong
+XDG_CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+for pair in "ponytail:$XDG_CFG/ponytail/config.json" "caveman:$XDG_CFG/caveman/config.json"; do
+  pname="${pair%%:*}"; pfile="${pair#*:}"
+  pmode="$(python3 -c 'import json,sys
+try: print((json.load(open(sys.argv[1])).get("defaultMode") or "").lower())
+except Exception: print("")' "$pfile" 2>/dev/null)"
+  case "$pmode" in
+    off) warn "$pname TIDAK aktif otomatis (defaultMode=off) — hidupkan: claude-statsbar on" ;;
+    "")  warn "$pname belum punya defaultMode eksplisit — pasang: claude-statsbar ensure" ;;
+    *)   pass "$pname aktif otomatis tiap sesi Claude baru (defaultMode=$pmode)" ;;
+  esac
+done
 
 if [ "$SMOKE" = 1 ]; then
   head_ "live request"

@@ -466,29 +466,13 @@ PY
       python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$CMD"
     )}" statusLine
 
-    # Badge state: defaults to on, never overwritten once the user chose.
-    if [ -f "$AGENT_DIR/stats-bar/badges" ]; then
-      skip "badge toggle already set: $(head -n1 "$AGENT_DIR/stats-bar/badges" 2>/dev/null) ($AGENT_DIR/stats-bar/badges)"
+    # Setelan terbaik, idempotent: ponytail & caveman aktif otomatis tiap sesi baru,
+    # badge tampil, panel band disembunyikan. Pilihan yang sudah ada tidak ditimpa —
+    # jadi re-run tidak memaksa hidup lagi kalau kamu pernah mematikannya.
+    if [ "$DRY_RUN" = 1 ]; then
+      echo "  ${D}[dry-run] would run: claude-statsbar ensure${R}"
     else
-      run sh -c "printf 'on\n' > '$AGENT_DIR/stats-bar/badges'"
-      ok "badge toggle created (on) — 'claude-statsbar off' hides the badges AND silences both plugins"
-    fi
-
-    # Panel "band" ponytail (cost/tokens/agent time + tombol mode di atas prompt)
-    # dimatikan supaya satu-satunya yang tampil adalah status bar. Flag-nya sama
-    # dengan yang ditulis `/ponytail band off`; `claude-statsbar band on` atau
-    # `/ponytail band` mengembalikannya.
-    BANDFLAG="$AGENT_DIR/.ponytail-band"
-    if [ -f "$BANDFLAG" ]; then
-      if [ "$(head -c 8 "$BANDFLAG" 2>/dev/null | tr -d '[:space:]')" = off ]; then
-        skip "panel band ponytail sudah disembunyikan ($BANDFLAG)"
-      else
-        run sh -c "printf 'off' > '$BANDFLAG'"
-        ok "panel band ponytail disembunyikan"
-      fi
-    else
-      run sh -c "printf 'off' > '$BANDFLAG'"
-      ok "panel band ponytail disembunyikan ('claude-statsbar band on' untuk menampilkan lagi)"
+      bash "$AGENT_DIR/bin/claude-statsbar" ensure | sed 's/^/  /'
     fi
 
     # Slash command inside Claude (/statsbar). $AGENT_DIR/commands is a symlink into

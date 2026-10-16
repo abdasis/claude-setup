@@ -9,6 +9,8 @@
 #   claude-statsbar band on|off     panel band ponytail di atas prompt (cost/tokens/
 #                                   tombol mode) — default disembunyikan supaya
 #                                   status bar satu-satunya yang tampil
+#   claude-statsbar ensure   pasang setelan terbaik tanpa menimpa pilihan yang sudah
+#                            ada: ponytail & caveman aktif otomatis tiap sesi baru
 #   claude-statsbar status   show what is on
 #
 # "off" writes defaultMode: off into the plugins' own config files — the lever
@@ -82,6 +84,45 @@ set_band() { # set_band on|off
   fi
 }
 
+ensure_defaults() { # setelan terbaik: mode aktif otomatis tiap sesi, badge tampil, band sembunyi
+  # Idempotent dan tidak menimpa pilihan yang sudah ada: kalau user pernah sengaja
+  # mematikan salah satunya, itu dipertahankan.
+  local pony_mode cave_mode
+  pony_mode="$(read_default_mode "$PONY_CFG")"
+  cave_mode="$(read_default_mode "$CAVE_CFG")"
+  case "$pony_mode" in
+    -|"") write_default_mode "$PONY_CFG" "$PONY_ON"
+          echo "  ponytail  -> defaultMode $PONY_ON (aktif otomatis tiap sesi baru)" ;;
+    "?")  echo "  ponytail  : $PONY_CFG tidak terbaca sebagai JSON — dibiarkan" ;;
+    *)    echo "  ponytail  : sudah $pony_mode — dibiarkan" ;;
+  esac
+  case "$cave_mode" in
+    -|"") write_default_mode "$CAVE_CFG" "$CAVE_ON"
+          echo "  caveman   -> defaultMode $CAVE_ON (aktif otomatis tiap sesi baru)" ;;
+    "?")  echo "  caveman   : $CAVE_CFG tidak terbaca sebagai JSON — dibiarkan" ;;
+    *)    echo "  caveman   : sudah $cave_mode — dibiarkan" ;;
+  esac
+  if [ -f "$BADGES" ]; then
+    echo "  badge     : sudah $(badge_state) — dibiarkan"
+  else
+    set_badges on; echo "  badge     -> on"
+  fi
+  if [ -f "$BANDFLAG" ]; then
+    echo "  panel band: sudah $(band_state) — dibiarkan"
+  else
+    set_band off; echo "  panel band-> disembunyikan (hanya status bar yang tampil)"
+  fi
+  if [ "$(node -e '
+    const fs=require("fs");
+    try{
+      const s=JSON.parse(fs.readFileSync(process.argv[1]+"/settings.json","utf8").replace(/^\uFEFF/,""));
+      process.stdout.write(/stats-bar\/statusbar\.sh/.test(((s.statusLine||{}).command)||"")?"ok":"no");
+    }catch(e){ process.stdout.write("no"); }
+  ' "$CFG" 2>/dev/null)" != ok ]; then
+    echo "  ! settings.json statusLine BUKAN wrapper stats-bar — jalankan install.sh (step 6)"
+  fi
+}
+
 set_modes() { # set_modes on|off
   if [ "$1" = on ]; then
     write_default_mode "$PONY_CFG" "$PONY_ON"
@@ -147,6 +188,9 @@ case "${1:-status}" in
       off) set_band off; echo "panel band disembunyikan — hanya status bar yang tampil." ;;
       *)   die "usage: claude-statsbar band on|off" ;;
     esac
+    ;;
+  ensure)
+    need_node; ensure_defaults
     ;;
   status) show_status ;;
   *)

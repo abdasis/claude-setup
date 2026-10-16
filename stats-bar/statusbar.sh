@@ -104,12 +104,15 @@ out="$(join "$modes" "$info_full")"
 # COLUMNS/LINES yang Claude Code set ke env script statusLine. Kalau COLUMNS tidak ada
 # (host lain) badge tetap tercetak rata kiri.
 #   CLAUDE_STATSBAR_ALIGN=left    — matikan rata kanan
-#   CLAUDE_STATSBAR_MARGIN=<n>    — sisa kolom di kanan (default 0; pakai 2 kalau membungkus)
+#   CLAUDE_STATSBAR_MARGIN=<n>    — sisa kolom di kanan (default 2 supaya baris tidak
+#                                   pernah membungkus ke baris kedua)
 #   CLAUDE_STATSBAR_INFO=off      — sembunyikan segmen ctx/tok
 #   CLAUDE_STATSBAR_ICONS=off     — kembalikan badge plugin jadi teks ([PONYTAIL]/[CAVEMAN])
 cols="${COLUMNS:-}"
 case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
-margin="${CLAUDE_STATSBAR_MARGIN:-0}"
+margin="${CLAUDE_STATSBAR_MARGIN:-2}"    # 2 kolom sisa: baris status Claude Code duduk di
+                                         # dalam baris batas kotak input, jadi COLUMNS penuh
+                                         # berisiko membungkus
 case "$margin" in ''|*[!0-9]*) margin=0 ;; esac
 
 visible_len() { # jumlah KARAKTER (glyph ikon multibyte), bukan byte
