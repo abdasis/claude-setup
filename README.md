@@ -169,6 +169,34 @@ CLAUDE_STATSBAR_MARGIN=2       # sisakan 2 kolom di kanan (dipakai kalau barisny
 
 Kalau `COLUMNS` tidak ada (host lain yang menjalankan script ini), badge otomatis rata kiri.
 
+### Segmen info: context & token sesi
+
+Ikon, bukan teks — hemat ruang. Semua glyph di bawah ada di font terminal Dank Mono
+(dicek lewat `fc-list --charset`), jadi tidak jatuh ke font fallback:
+
+```
+[PONYTAIL] [CAVEMAN]  ◔ 9% 90.9k/1M · Σ 22.5M ↑1.8M ↓133.7k
+                      │              │        └ input / output
+                      │              └ token sesi kumulatif (termasuk cache read/write)
+                      └ context terpakai: persentase + token/window
+```
+
+- **`◔`** — context yang sedang terpakai, dari payload statusline Claude Code
+  (`context_window.total_input_tokens` / `total_output_tokens` / `context_window_size` /
+  `used_percentage`; menurut dokumentasi Claude Code `total_input_tokens` sudah termasuk
+  cache read/write). Warna: hijau ≤50%, kuning ≤80%, merah di atasnya.
+- **`Σ`** — token kumulatif sesi: input + output + cache read + cache write, dijumlah sendiri
+  dari `transcript_path` — angka yang sama dengan "tokens" di panel band ponytail. Karena cache
+  read ikut dihitung, `Σ` memang lebih besar dari `↑ + ↓`. Cache-nya di
+  `<config-dir>/stats-bar/session-tokens.json`, jadi tiap render hanya membaca byte baru
+  (transcript 3 MB pun ~20 ms, tidak dibaca ulang seluruhnya).
+- **`↑` `↓`** — rincian input dan output, hanya muncul di varian terlebar.
+- Barisnya **mengecil sendiri** kalau pane sempit — ikon penuh → tanpa `↑↓` → hanya `◔`
+  → hanya badge — supaya tidak pernah membungkus ke baris kedua.
+- Kalau payload tidak memuat `context_window` atau `transcript_path` (host/versi lain),
+  segmen yang tidak bisa dihitung dilewati, barisnya tidak pernah error.
+- Matikan segmen ini: `CLAUDE_STATSBAR_INFO=off`.
+
 Panel **band** ponytail (baris `off lite [full] ultra` plus cost / tokens / agent time di atas
 prompt) sengaja tidak ikut tampil: step 6 menulis flag `<config-dir>/.ponytail-band` = `off`
 yang dibaca modul UI-nya, sehingga satu-satunya indikator yang tampil adalah status bar.

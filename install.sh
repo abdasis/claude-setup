@@ -409,6 +409,7 @@ if [ "$DO_STATSBAR" = 1 ]; then
   else
     run mkdir -p "$AGENT_DIR/stats-bar" "$AGENT_DIR/hooks" "$AGENT_DIR/bin" "$HOME/.local/bin"
     run install -m 0755 "$SRC/statusbar.sh"    "$AGENT_DIR/stats-bar/statusbar.sh"
+    run install -m 0755 "$SRC/statusline-info.py" "$AGENT_DIR/stats-bar/statusline-info.py"
     run install -m 0755 "$SRC/claude-statsbar" "$AGENT_DIR/bin/claude-statsbar"
     run ln -sfn "$AGENT_DIR/bin/claude-statsbar" "$HOME/.local/bin/claude-statsbar"
     ok "wrapper + toggle installed ($AGENT_DIR/bin/claude-statsbar, symlinked into ~/.local/bin)"

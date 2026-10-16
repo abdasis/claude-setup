@@ -168,11 +168,30 @@ if [ -x "$SB" ]; then
   right="$(printf '%s' "$payload" | COLUMNS=120 CLAUDE_CONFIG_DIR="$AGENT_DIR" "$SB" 2>/dev/null)"
   vis="$(printf '%s' "$right" | sed $'s/\033\\[[0-9;]*m//g')"
   if [ -z "$vis" ]; then
-    echo "  ${D:-}      badge kosong (mode off) — rata kanan tidak diuji${R:-}"
-  elif [ "${#vis}" -eq 120 ]; then
-    pass "badge rata kanan: panjang baris ${#vis} = COLUMNS 120"
+    echo "        badge kosong (mode off) — rata kanan tidak diuji"
   else
-    warn "badge tidak rata kanan (panjang ${#vis}, harusnya 120) — cek COLUMNS atau CLAUDE_STATSBAR_ALIGN"
+    nvis="$(printf '%s' "$vis" | LC_ALL=C.UTF-8 wc -m | tr -d ' ')"   # karakter, bukan byte (ikon multibyte)
+    if [ "$nvis" -eq 120 ]; then
+      pass "badge rata kanan: panjang baris $nvis = COLUMNS 120"
+    else
+      warn "badge tidak rata kanan (panjang $nvis, harusnya 120) — cek COLUMNS atau CLAUDE_STATSBAR_ALIGN"
+    fi
+  fi
+
+  # segmen info ctx/tok: angka ctx dari payload, token sesi dari transcript (angka pasti)
+  INFO_PY="$AGENT_DIR/stats-bar/statusline-info.py"
+  if [ -f "$INFO_PY" ] && command -v python3 >/dev/null 2>&1; then
+    tmpd="$(mktemp -d)"; tmp_tr="$tmpd/tr.jsonl"
+    printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":250,"cache_read_input_tokens":500,"cache_creation_input_tokens":300}}}' >"$tmp_tr"
+    info="$(printf '{"transcript_path":"%s","context_window":{"total_input_tokens":90000,"total_output_tokens":500,"context_window_size":200000,"used_percentage":45.3}}' "$tmp_tr" \
+      | python3 "$INFO_PY" "$tmpd" | cut -f1 | sed $'s/\033\\[[0-9;]*m//g')"
+    rm -rf "$tmpd"
+    case "$info" in
+      *"◔ 45% 90.5k/200k"*"Σ 2k"*"↑1k"*"↓250"*) pass "segmen ikon ctx/tok: $info" ;;
+      *) bad "segmen ikon ctx/tok salah: [$info] (harus ◔ 45% 90.5k/200k … Σ 2k … ↑1k … ↓250)" ;;
+    esac
+  else
+    bad "status-bar/statusline-info.py hilang — segmen ctx/tok tidak jalan"
   fi
 fi
 BANDFLAG="$AGENT_DIR/.ponytail-band"

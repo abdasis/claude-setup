@@ -7,6 +7,9 @@
 # Installed by claude-setup. Toggle:  ~/.claude/bin/claude-statsbar on|off|toggle|status
 # State:                              <CLAUDE_CONFIG_DIR>/stats-bar/badges  (on|off)
 #
+# Segmen info (ctx terpakai + token sesi) datang dari status-bar/statusline-info.py.
+# CLAUDE_STATSBAR_INFO=off menyembunyikannya, CLAUDE_STATSBAR_ALIGN=left mematikan rata kanan.
+#
 # Each badge is rendered by the plugin's own statusline script, so a plugin update
 # keeps their look. Scripts are resolved as the newest of:
 #   1. the stable copy in the config dir (ponytail refreshes its own every session)
@@ -32,7 +35,20 @@ case "$(head -n1 "$CFG/stats-bar/badges" 2>/dev/null | tr -d '[:space:]')" in
   off) exit 0 ;;
 esac
 
-# 3. Badges, left to right.
+# 3. Segmen info: context terpakai + token sesi (opsional, lihat statusline-info.py).
+#    Helper mengembalikan tiga varian (full/ringkas/mini) dipisah TAB; wrapper memilih
+#    yang masih muat di lebar baris supaya tidak membungkus ke baris kedua.
+info_full=""; info_short=""; info_mini=""
+info_py="$CFG/stats-bar/statusline-info.py"
+if [ "${CLAUDE_STATSBAR_INFO:-on}" != off ] && [ -f "$info_py" ]; then
+  info_raw="$(printf '%s' "$payload" | python3 "$info_py" "$CFG/stats-bar" 2>/dev/null)"
+  info_full="${info_raw%%$'\t'*}"
+  rest="${info_raw#*$'\t'}"
+  info_short="${rest%%$'\t'*}"
+  info_mini="${rest#*$'\t'}"
+fi
+
+# 4. Badges, left to right.
 newest() {  # newest <candidate...> -> newest existing file, or empty
   local best="" f
   for f in "$@"; do
@@ -53,9 +69,13 @@ cave="$(newest \
   "$CFG/hooks/caveman-statusline.sh" \
   "$CFG"/plugins/cache/caveman/caveman/*/src/hooks/caveman-statusline.sh)"
 
-out="$(badge "$pony")"
+modes="$(badge "$pony")"
 c="$(badge "$cave")"
-[ -n "$c" ] && out="${out:+$out }$c"
+[ -n "$c" ] && modes="${modes:+$modes }$c"
+
+# gabungkan mode + info; spasi pemisah hanya kalau keduanya ada
+join() { if [ -n "$1" ] && [ -n "$2" ]; then printf '%s  %s' "$1" "$2"; else printf '%s%s' "$1" "$2"; fi; }
+out="$(join "$modes" "$info_full")"
 [ -n "$out" ] || exit 0     # tanpa badge: jangan cetak spasi saja (baris kosong)
 
 # Rata kanan. Claude Code MENANGKAP stdout script ini (tidak dihubungkan ke terminal),
@@ -64,18 +84,32 @@ c="$(badge "$cave")"
 # (host lain) badge tetap tercetak rata kiri.
 #   CLAUDE_STATSBAR_ALIGN=left    — matikan rata kanan
 #   CLAUDE_STATSBAR_MARGIN=<n>    — sisa kolom di kanan (default 0; pakai 2 kalau membungkus)
-if [ "${CLAUDE_STATSBAR_ALIGN:-right}" = right ]; then
-  cols="${COLUMNS:-}"
-  case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
-  margin="${CLAUDE_STATSBAR_MARGIN:-0}"
-  case "$margin" in ''|*[!0-9]*) margin=0 ;; esac
-  if [ "$cols" -gt 1 ]; then
-    visible="$(printf '%s' "$out" | sed $'s/\033\\[[0-9;]*m//g')"
-    pad=$(( cols - ${#visible} - margin ))
-    if [ "$pad" -gt 0 ]; then
-      printf '%*s%s' "$pad" '' "$out"
-      exit 0
-    fi
+#   CLAUDE_STATSBAR_INFO=off      — sembunyikan segmen ctx/tok
+cols="${COLUMNS:-}"
+case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
+margin="${CLAUDE_STATSBAR_MARGIN:-0}"
+case "$margin" in ''|*[!0-9]*) margin=0 ;; esac
+
+visible_len() { # jumlah KARAKTER (glyph ikon multibyte), bukan byte
+  printf '%s' "$1" | sed $'s/\033\\[[0-9;]*m//g' | LC_ALL=C.UTF-8 wc -m | tr -d ' '
+}
+
+if [ "$cols" -gt 1 ]; then
+  # mengecil bertahap: info penuh -> info ringkas -> ctx saja -> badge saja,
+  # supaya baris tidak pernah membungkus ke baris kedua
+  for candidate in "$out" "$(join "$modes" "$info_short")" "$(join "$modes" "$info_mini")" "$modes"; do
+    [ -n "$candidate" ] || continue
+    len="$(visible_len "$candidate")"
+    if [ "$(( len + margin ))" -le "$cols" ]; then out="$candidate"; break; fi
+  done
+fi
+
+if [ "${CLAUDE_STATSBAR_ALIGN:-right}" = right ] && [ "$cols" -gt 1 ]; then
+  len="$(visible_len "$out")"
+  pad=$(( cols - len - margin ))
+  if [ "$pad" -gt 0 ]; then
+    printf '%*s%s' "$pad" '' "$out"
+    exit 0
   fi
 fi
 printf '%s' "$out"
